@@ -594,7 +594,7 @@ importers:
     dependencies:
       '@hono/node-server':
         specifier: ^2.0.10
-        version: 2.1.8(hono@4.13.18)
+        version: 2.1.8(hono@4.13.19)
       '@lacrew/adapter-agents-mcp':
         specifier: workspace:*
         version: link:../adapters/agents-mcp
@@ -624,7 +624,7 @@ importers:
         version: link:../sdk
       hono:
         specifier: ^4.12.31
-        version: 4.13.18
+        version: 4.13.19
       pg-boss:
         specifier: ^12.0.0
         version: 12.38.2(@opentelemetry/api@1.9.1)
@@ -3451,8 +3451,8 @@ packages:
   hastscript@9.0.1:
     resolution: {integrity: sha512-g7df9rMFX/SPi34tyGCyUBREQoKkapwdY/T04Qn9TDWfHhAYt4/I0gMVirzK5wEzeUqIjEB+LXC/ypb7Aqno5w==}
 
-  hono@4.13.18:
-    resolution: {integrity: sha512-H9q/E1XizaWstJxUW881dmLxEj+t/TrGGnyxINkm4+sK0qUwsMtFdo2BWI9Vs3cIS19MU6b6iCijoUoEf4f3DA==}
+  hono@4.13.19:
+    resolution: {integrity: sha512-KmXvQAXwcAHV+muzbIwoJ23niEB5nMoDVr9WcRkU8mvjUECm/1+7v4Jgp7P7a+H6MLFrh+vXrGonGrGS+RQfkA==}
     engines: {node: '>=16.9.0'}
 
   html-void-elements@3.0.0:
@@ -4829,9 +4829,9 @@ snapshots:
       '@goat-sdk/wallet-evm': 0.3.0(@goat-sdk/core@0.5.0(zod@3.25.76))(typescript@7.0.2)
       viem: 2.57.20(typescript@7.0.2)(zod@3.25.76)
 
-  '@hono/node-server@2.1.8(hono@4.13.18)':
+  '@hono/node-server@2.1.8(hono@4.13.19)':
     dependencies:
-      hono: 4.13.18
+      hono: 4.13.19
 
   '@img/colour@1.1.0':
     optional: true
@@ -6992,7 +6992,7 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  hono@4.13.18: {}
+  hono@4.13.19: {}
 
   html-void-elements@3.0.0: {}
 
