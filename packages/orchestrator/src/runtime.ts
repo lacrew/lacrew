@@ -87,7 +87,14 @@ import {
   revokeSession,
   createEphemeralSession,
 } from "./sessions.js";
-import { Conversation, type Message, type PostInput, type ThreadScope } from "./conversation.js";
+import {
+  Conversation,
+  THREAD_RING_MAX,
+  type Message,
+  type PostInput,
+  type ThreadScope,
+} from "./conversation.js";
+import { buildApproverViews, type ApproverIntentView } from "./approverView.js";
 import {
   AgentControls,
   AgentPausedError,
@@ -2085,6 +2092,29 @@ export class CrewRuntime {
     if (booked && booked.toLowerCase() === wanted) return true;
     const nodes = await this.client.getOrgTree();
     return nodes.some((n) => n.kind === "human_root" && n.account.toLowerCase() === wanted);
+  }
+
+  /**
+   * The pending queue as an AI approver should read it: decoded, simulated,
+   * aggregated, with the requester's own words quarantined (see
+   * `approverView.ts`). What `lacrew_list_pending_intents` serves.
+   */
+  async approverQueue(): Promise<ApproverIntentView[]> {
+    const intents = await this.listPending();
+    const nodes = await this.client.getOrgTree().catch(() => []);
+    const ledger = isProtocolClient(this.client) ? this.client : null;
+    const allowances = new Map<string, bigint>();
+    if (ledger) {
+      for (const a of await ledger.getAllowances().catch(() => [])) {
+        allowances.set(a.node.toLowerCase(), a.balance);
+      }
+    }
+    return buildApproverViews(intents, {
+      nodes,
+      addresses: ledger ? ledger.addresses : null,
+      allowances: ledger ? allowances : undefined,
+      messages: this.conversation.recent(THREAD_RING_MAX),
+    });
   }
 
   async listPending(): Promise<Intent[]> {

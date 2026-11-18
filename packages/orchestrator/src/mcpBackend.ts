@@ -26,11 +26,12 @@ export function createRuntimeMcpBackend(
 ): McpToolBackend {
   return {
     getOrgTree: () => runtime.getClient().getOrgTree(),
-    listPendingIntents: async () =>
-      (await runtime.listPending()).map((intent) => ({
-        ...intent,
-        value: intent.value.toString(),
-      })),
+    /*
+      An approver reads the queue as structured records — decoded call,
+      simulation, aggregates — with the requester's own words fenced off as
+      untrusted. See `approverView.ts` for why.
+    */
+    listPendingIntents: () => runtime.approverQueue(),
     proposeIntent: async (input) => {
       const { intentId, verdict, txHash, simTxId } = await runtime.propose({
         ...input,
@@ -105,9 +106,14 @@ export function createRuntimeMcpBackend(
     readThread: async (input) => {
       const scope = scopeOfThread(input.thread);
       if (!scope) throw new Error(`unknown_thread: ${input.thread}`);
+      // Another participant's message is their claim, and a reader deciding
+      // anything (an approval above all) must see it as such.
+      const reader = (actor.principal ?? runtime.workerAddress).toLowerCase();
       return {
         thread: input.thread,
-        messages: runtime.thread(scope, input.limit ?? 50),
+        messages: runtime
+          .thread(scope, input.limit ?? 50)
+          .map((m) => (m.author.toLowerCase() === reader ? m : { ...m, untrusted: true as const })),
         openQuestions: runtime.openQuestions(scope),
       };
     },
