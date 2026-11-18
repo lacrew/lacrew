@@ -59,6 +59,17 @@ export {
 } from "./walletAdapters.js";
 export { createRuntimeMcpBackend } from "./mcpBackend.js";
 export {
+  buildApproverViews,
+  decodeIntentCall,
+  identifyParty,
+  requesterNarrative,
+  NARRATIVE_NOTICE,
+  type ApproverIntentView,
+  type ApproverCall,
+  type ApproverParty,
+  type ApproverNarrative,
+} from "./approverView.js";
+export {
   connectorEnvVars,
   createConnectorRegistry,
   DEFAULT_MAX_REQUEST_BYTES,
