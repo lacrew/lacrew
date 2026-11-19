@@ -135,6 +135,12 @@ export {
   type PlanRequirementRow,
 } from "./planRequired.js";
 export {
+  upsertTargetAbi,
+  deleteTargetAbi,
+  listTargetAbis,
+  type TargetAbiRow,
+} from "./targetAbis.js";
+export {
   upsertCrewBinding,
   deleteCrewBinding,
   listCrewBindings,

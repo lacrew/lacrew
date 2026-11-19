@@ -124,6 +124,11 @@ export const runtimeAgentControls = pgTable(
      * round-trip what an operator typed instead of re-parsing a rendering.
      */
     layers: jsonb("layers").notNull().default([]).$type<unknown[]>(),
+    /**
+     * How this seat, as an approver, is shown what a requester wrote:
+     * `quarantine` or `off`. Null inherits the workspace default.
+     */
+    approverNarrative: text("approver_narrative"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [primaryKey({ columns: [table.orgId, table.agent] })],

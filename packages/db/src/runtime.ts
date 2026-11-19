@@ -228,6 +228,8 @@ export interface AgentControlRow {
   pausedReason?: string;
   /** Ordered directive layers, opaque here — @lacrew/orchestrator owns the shape. */
   layers: unknown[];
+  /** `quarantine` | `off`; absent inherits the workspace default. */
+  approverNarrative?: string;
   updatedAt: string;
 }
 
@@ -245,6 +247,7 @@ export async function upsertAgentControlRow(handle: OrgDb, row: AgentControlRow)
     pausedAt: row.pausedAt ? new Date(row.pausedAt) : null,
     pausedReason: row.pausedReason ?? null,
     layers: row.layers,
+    approverNarrative: row.approverNarrative ?? null,
     updatedAt: new Date(row.updatedAt),
   };
   await handle.db
@@ -275,6 +278,7 @@ export async function allAgentControlRows(handle: OrgDb): Promise<AgentControlRo
     pausedAt: row.pausedAt?.toISOString(),
     pausedReason: row.pausedReason ?? undefined,
     layers: Array.isArray(row.layers) ? row.layers : [],
+    ...(row.approverNarrative ? { approverNarrative: row.approverNarrative } : {}),
     updatedAt: row.updatedAt.toISOString(),
   }));
 }

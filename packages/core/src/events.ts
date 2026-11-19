@@ -144,6 +144,17 @@ export type ProtocolEventType =
    */
   | "PlanRequiredChanged"
   /**
+   * An operator changed what an approving seat is shown of a requester's own
+   * words (F2.6): `quarantine`, `off`, or back to inheriting the workspace.
+   * Turning it back on is the direction worth finding later.
+   */
+  | "ApproverNarrativeChanged"
+  /**
+   * An operator registered, replaced or removed the ABI the approver view
+   * decodes a target's calldata with (F2.6).
+   */
+  | "TargetAbiChanged"
+  /**
    * A blueprint seat was bound to an account, or that binding was forgotten
    * (F2.25).
    *
