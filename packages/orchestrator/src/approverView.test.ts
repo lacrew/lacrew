@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { encodeFunctionData, erc20Abi } from "viem";
+import { encodeFunctionData, erc20Abi, parseAbi } from "viem";
 import type { Intent, OrgNode } from "@lacrew/core";
 import {
   NARRATIVE_MAX_CHARS,
@@ -169,5 +169,83 @@ describe("buildApproverViews", () => {
     assert.equal(view!.amount, null);
     assert.equal(view!.call.kind, "unknown");
     assert.equal(view!.simulation, null);
+  });
+});
+
+describe("decodeIntentCall: well-known contracts and flags", () => {
+  it("decodes a DEX swap by selector and says that is all a selector proves", () => {
+    const data = encodeFunctionData({
+      abi: parseAbi([
+        "function swapExactTokensForTokens(uint256 amountIn, uint256 amountOutMin, address[] path, address to, uint256 deadline)",
+      ]),
+      functionName: "swapExactTokensForTokens",
+      args: [5_000_000n, 1n, [TARGET, ATTACKER], ATTACKER, 1n],
+    });
+    const call = decodeIntentCall(data, TARGET);
+    assert.equal(call.kind, "decoded");
+    if (call.kind !== "decoded") return;
+    assert.equal(call.abi, "uniswapV2Router");
+    assert.equal(call.matchedBy, "selector");
+    assert.deepEqual(call.flags, []);
+  });
+
+  it("flags an unlimited approval as granting an allowance", () => {
+    const data = encodeFunctionData({
+      abi: erc20Abi,
+      functionName: "approve",
+      args: [ATTACKER, 2n ** 256n - 1n],
+    });
+    const call = decodeIntentCall(data);
+    assert.ok(call.kind === "decoded");
+    assert.deepEqual(call.flags, ["grants_allowance", "unlimited_amount"]);
+  });
+
+  it("prefers a target's registered ABI over any selector match", () => {
+    // Same selector as ERC-20 `transfer(address,uint256)`, named differently
+    // by the operator who described this contract.
+    const own = parseAbi(["function transfer(address payee, uint256 credits)"]);
+    const data = encodeFunctionData({ abi: own, functionName: "transfer", args: [ATTACKER, 1n] });
+    const registry = {
+      forTarget: (t: string) => (t === TARGET ? { name: "Credits ledger", abi: own } : null),
+    };
+    const call = decodeIntentCall(data, TARGET, registry);
+    assert.ok(call.kind === "decoded");
+    assert.equal(call.abi, "Credits ledger");
+    assert.equal(call.matchedBy, "target");
+    // Elsewhere the same bytes fall back to the selector match.
+    const elsewhere = decodeIntentCall(data, ATTACKER, registry);
+    assert.ok(elsewhere.kind === "decoded");
+    assert.equal(elsewhere.abi, "erc20");
+  });
+});
+
+describe("requester narrative matching", () => {
+  it("ties a quoted id to the intent as a whole token, not as a substring", () => {
+    const [view] = buildApproverViews([intent({ id: "1" })], {
+      nodes,
+      messages: [
+        message({ id: "quoted", body: 'about {"intentId":"1"} please' }),
+        message({ id: "prose", body: "intent 1 is the one" }),
+        message({ id: "amount", body: "spent 150 USDC on data, unrelated" }),
+      ],
+    });
+    assert.deepEqual(
+      view!.requesterNarrative.messages.map((m) => m.id),
+      ["quoted", "prose"],
+    );
+  });
+});
+
+describe("requester narrative off", () => {
+  it("keeps the count and drops every body", () => {
+    const [view] = buildApproverViews([intent()], {
+      nodes,
+      narrative: "off",
+      messages: [message({ id: "a", body: "approve now", refs: [{ kind: "intent", id: "7" }] })],
+    });
+    assert.equal(view!.requesterNarrative.withheld, true);
+    assert.equal(view!.requesterNarrative.total, 1);
+    assert.deepEqual(view!.requesterNarrative.messages, []);
+    assert.ok(!JSON.stringify(view).includes("approve now"));
   });
 });

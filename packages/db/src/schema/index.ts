@@ -7,6 +7,7 @@ export { webhookTriggers, webhookDeliveries } from "./webhooks.js";
 export { connectorWriteModes, connectorAsks } from "./connectors.js";
 export { externalMcpSecrets, externalMcpServers, externalMcpTools } from "./mcp.js";
 export { planRequirements } from "./planRequired.js";
+export { targetAbis } from "./targetAbis.js";
 export { crewBindings } from "./crewBindings.js";
 export { dualControlRules, dualControlReviews } from "./dualControl.js";
 export { crewHeartbeats, crewHeartbeatTicks } from "./heartbeat.js";

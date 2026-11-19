@@ -64,11 +64,29 @@ A ManagerAgent settling an escalation is deciding on a request from the one seat
 | `requester`          | The proposing seat, named from the org chart                                                                                             |
 | `recipient`          | The target: an org seat, one of the org's own contracts (from the address book), or `external`                                           |
 | `amount`             | `value` in the org asset (raw `value` stays alongside, in base units)                                                                    |
-| `call`               | `transfer` for empty calldata, `decoded` (function and arguments) against ERC-20 and the protocol ABIs, or `unknown` with its selector   |
+| `call`               | `transfer` for empty calldata, `decoded` (function, arguments, `matchedBy`, `flags`), or `unknown` with its selector                     |
 | `simulation`         | The approval dry-run: allowance, measured state diffs, call trace where the node gives them; `null` when nothing simulated               |
 | `aggregates`         | What this requester has pending in total, what the approver's whole queue adds up to, and the requester's current allowance              |
 | `requesterNarrative` | Up to 3 messages (280 characters each) the requester posted about this intent, inside an envelope marked `untrusted: true` with a notice |
 
 The narrative is quarantined rather than dropped: a legitimate worker's reason is useful context, and hiding it would push approvers back to the raw thread. Only the requester's own messages that reference the intent are included. `lacrew_read_thread` likewise marks every message authored by someone other than the reader `untrusted: true`.
+
+### Decoding a call
+
+The decoder tries, in order: an ABI an operator registered for the target (`matchedBy: "target"`), then ERC-20, the protocol contracts and well-known contracts — Uniswap V2 / V3 / SwapRouter02 / Universal Router, Permit2, WETH, ERC-4626 vaults, NFT approvals (`matchedBy: "selector"`). A selector match names the function the bytes call, not the contract at the address; only a registered ABI vouches for that. `flags` marks a call that `grants_allowance` (`approve`, `increaseAllowance`, `setApprovalForAll`, `permit`) and an `unlimited_amount` (an argument at or above 2^255), since an approval outlives the intent that carried it.
+
+Register a target's ABI with `PUT /targets/abi` (`{ target, name, abi }` — JSON ABI items; only function fragments are kept, and a body with none is refused), list with `GET /targets/abi`, remove with `DELETE /targets/abi?target=0x…`. Entries persist in `orchestrator_target_abis` and changes are audited as `TargetAbiChanged`.
+
+### Turning the narrative off
+
+Quarantine still shows a model the requester's words, labelled. A seat can be set to see none of them:
+
+```bash
+curl -X PUT "$ORCH_URL/agents/approver-narrative" \
+  -H 'content-type: application/json' \
+  -d '{"agent":"0xManager…","mode":"off"}'     # or "quarantine", or "inherit"
+```
+
+With `off`, `requesterNarrative` carries only `withheld: true` and a `total` count, and `lacrew_read_thread` for that seat returns other agents' messages with their bodies removed (`withheld: true`; author, kind, time and refs kept). That second part matters for flows: a step that interpolates a thread read into the approver's prompt would otherwise carry the same text in by the other door. People's messages stay readable, labelled `untrusted`. The workspace default is `LACREW_APPROVER_NARRATIVE` (`quarantine` unless set; a multi-org orchestrator ignores it and defaults every org to `quarantine`). The current settings appear under `approverNarrative` in `GET /agents/controls`, and changes are audited as `ApproverNarrativeChanged`.
 
 None of this decides anything. The chain still re-checks the approver's own policy stack on `resolve`, so an approver fooled anyway is bounded by its own caps.

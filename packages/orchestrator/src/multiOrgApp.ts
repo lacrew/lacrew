@@ -158,6 +158,13 @@ const SETTINGS: Array<Omit<MultiOrgSetting, "configured">> = [
       "A rule seeded from the environment would apply to every org. Each org sets its own through the API.",
   },
   {
+    surface: "approverNarrative.default",
+    env: ["LACREW_APPROVER_NARRATIVE"],
+    handling: "disabled",
+    reason:
+      "A workspace default set in the environment would apply to every org. Each org defaults to quarantine and sets seats to off through PUT /agents/approver-narrative.",
+  },
+  {
     surface: "dualControl.seed",
     env: [
       "LACREW_DUAL_CONTROL",

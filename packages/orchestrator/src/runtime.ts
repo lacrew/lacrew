@@ -95,10 +95,13 @@ import {
   type ThreadScope,
 } from "./conversation.js";
 import { buildApproverViews, type ApproverIntentView } from "./approverView.js";
+import { TargetAbis } from "./targetAbis.js";
 import {
   AgentControls,
   AgentPausedError,
+  approverNarrativeFromEnv,
   type AgentBrief,
+  type ApproverNarrativeMode,
   type BriefLayer,
 } from "./agentControls.js";
 import { worstVerdict } from "./flowScope.js";
@@ -325,6 +328,12 @@ export interface CrewRuntimeOptions {
   gasStore?: GasStore;
   /** Persistence for session/intent records; defaults to bounded memory. */
   runtimeStore?: RuntimeStore;
+  /**
+   * What an approving seat is shown of a requester's own words when the seat
+   * has no setting of its own (`LACREW_APPROVER_NARRATIVE`). Default
+   * `quarantine`.
+   */
+  approverNarrative?: ApproverNarrativeMode;
 }
 
 /**
@@ -640,6 +649,7 @@ export async function createRuntimeFromEnv(options: { orgId?: string } = {}): Pr
       gasStore: createGasStoreFromEnv(orgId, chainId),
       runtimeStore: createRuntimeStoreFromEnv(orgId),
       watchlist: watchlistFromEnv(),
+      approverNarrative: approverNarrativeFromEnv(),
       ...(delegations ? { delegations } : {}),
     }),
   };
@@ -667,6 +677,7 @@ function createSandboxRuntimeFromEnv(orgId: string): RuntimeBoot {
       store: createSandboxStateStoreFromEnv(orgId),
       auditStore: createAuditStoreFromEnv(orgId, undefined, "sandbox"),
       runtimeStore: createRuntimeStoreFromEnv(orgId),
+      approverNarrative: approverNarrativeFromEnv(),
     }),
   };
 }
@@ -679,6 +690,7 @@ export function createSandboxRuntime(
     store?: SandboxStateStore;
     auditStore?: AuditStore;
     runtimeStore?: RuntimeStore;
+    approverNarrative?: ApproverNarrativeMode;
     /** Wall time in ms, for tests; the sandbox clock is this plus its offset. */
     wallClock?: () => number;
   } = {},
@@ -693,6 +705,7 @@ export function createSandboxRuntime(
     }),
     ...(options.auditStore ? { auditStore: options.auditStore } : {}),
     ...(options.runtimeStore ? { runtimeStore: options.runtimeStore } : {}),
+    ...(options.approverNarrative ? { approverNarrative: options.approverNarrative } : {}),
   });
 }
 
@@ -732,6 +745,9 @@ export class CrewRuntime {
   private readonly sessionScopePolicy = new Map<string, SessionScope[]>();
   /** Standing per-agent controls: the pause gate and the brief (see agentControls.ts). */
   private readonly agentControls: AgentControls;
+  /** Operator-registered target ABIs the approver view decodes with. */
+  readonly targetAbis: TargetAbis;
+  private readonly approverNarrativeDefault: ApproverNarrativeMode;
   /** The crew's conversation — claims and questions, never authority (F1.7). */
   private readonly conversation: Conversation;
   private readonly messageObservers = new Set<(message: Message) => void>();
@@ -832,6 +848,8 @@ export class CrewRuntime {
     }
     this.runtimeStore = options.runtimeStore ?? createMemoryRuntimeStore();
     this.agentControls = new AgentControls(this.runtimeStore);
+    this.targetAbis = new TargetAbis(this.runtimeStore);
+    this.approverNarrativeDefault = options.approverNarrative ?? "quarantine";
     this.conversation = new Conversation(this.runtimeStore);
     this.delegations = options.delegations;
   }
@@ -1550,6 +1568,10 @@ export class CrewRuntime {
    * competently. That is the failure this store exists to prevent, so it must
    * not be indistinguishable from a clean first boot.
    */
+  async hydrateTargetAbis(): Promise<{ ok: boolean; loaded: number }> {
+    return this.targetAbis.hydrate(this.runtimeStore);
+  }
+
   async hydrateAgentControls(): Promise<{ ok: boolean; loaded: number }> {
     return this.agentControls.hydrate(this.runtimeStore);
   }
@@ -1562,6 +1584,45 @@ export class CrewRuntime {
   /** True once stored controls were read; false means nothing standing is known. */
   get agentControlsHydrated(): boolean {
     return this.agentControls.hydrated;
+  }
+
+  /* ——— approver narrative (PRD F2.6) ——— */
+
+  /** What a seat is shown of requester text: its own setting, else the workspace's. */
+  approverNarrativeFor(agent: string): ApproverNarrativeMode {
+    return this.agentControls.approverNarrativeFor(agent) ?? this.approverNarrativeDefault;
+  }
+
+  approverNarrativeSettings(): {
+    default: ApproverNarrativeMode;
+    seats: Array<{ agent: string; mode: ApproverNarrativeMode }>;
+  } {
+    return {
+      default: this.approverNarrativeDefault,
+      seats: this.agentControls.listApproverNarrative(),
+    };
+  }
+
+  /**
+   * Set a seat's narrative mode, or clear it back to the workspace default
+   * with null. Audited: turning a seat's view of requester text back on is a
+   * change an operator should be able to find later.
+   */
+  setApproverNarrative(
+    agent: `0x${string}`,
+    mode: ApproverNarrativeMode | null,
+  ): { changed: boolean; effective: ApproverNarrativeMode } {
+    const at = new Date().toISOString();
+    const before = this.agentControls.approverNarrativeFor(agent);
+    const changed = this.agentControls.setApproverNarrative(agent, mode, at);
+    if (changed) {
+      this.pushAudit({
+        type: "ApproverNarrativeChanged",
+        at,
+        payload: { agent: agent.toLowerCase(), from: before ?? "inherit", to: mode ?? "inherit" },
+      });
+    }
+    return { changed, effective: this.approverNarrativeFor(agent) };
   }
 
   /* ——— conversation (PRD F1.7) ——— */
@@ -2096,10 +2157,11 @@ export class CrewRuntime {
 
   /**
    * The pending queue as an AI approver should read it: decoded, simulated,
-   * aggregated, with the requester's own words quarantined (see
-   * `approverView.ts`). What `lacrew_list_pending_intents` serves.
+   * aggregated, with the requester's own words quarantined or withheld per
+   * the reading seat's setting (see `approverView.ts`). What
+   * `lacrew_list_pending_intents` serves.
    */
-  async approverQueue(): Promise<ApproverIntentView[]> {
+  async approverQueue(reader?: `0x${string}`): Promise<ApproverIntentView[]> {
     const intents = await this.listPending();
     const nodes = await this.client.getOrgTree().catch(() => []);
     const ledger = isProtocolClient(this.client) ? this.client : null;
@@ -2114,6 +2176,8 @@ export class CrewRuntime {
       addresses: ledger ? ledger.addresses : null,
       allowances: ledger ? allowances : undefined,
       messages: this.conversation.recent(THREAD_RING_MAX),
+      narrative: this.approverNarrativeFor(reader ?? this.workerAgent),
+      targetAbis: this.targetAbis,
     });
   }
 

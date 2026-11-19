@@ -1,14 +1,16 @@
-import { describe, it } from "node:test";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import {
   messageFromRow,
   messageToRow,
   createMemoryRuntimeStore,
+  createPgRuntimeStore,
   createRuntimeStoreFromEnv,
   type IntentRecord,
   type SessionRecord,
 } from "./runtimeStore.js";
 import { CrewRuntime } from "./runtime.js";
+import { closeSharedDb, sharedDb } from "./dbPool.js";
 import type { Message } from "./conversation.js";
 import { createLacrewClient } from "@lacrew/sdk/testing";
 
@@ -222,5 +224,60 @@ describe("CrewRuntime runtime store wiring", () => {
     await runtime.revokeSessionById(booted.keyId);
     const [record] = await runtime.sessionHistory(1);
     assert.equal(record?.status, "revoked");
+  });
+});
+
+/*
+  The approver controls (F2.6) against a real database: the narrative column on
+  agent controls and the target-ABI table. Skipped without DATABASE_URL; CI runs
+  it against a Postgres service. An org id of its own per run, so a shared
+  database is never a shared fixture.
+*/
+describe("approver controls on Postgres", { skip: !process.env.DATABASE_URL }, () => {
+  after(async () => closeSharedDb());
+  const orgId = `test-approver-${process.pid}-${Date.now()}`;
+  const agent = "0x2222222222222222222222222222222222222222";
+  const target = "0x4444444444444444444444444444444444444444" as const;
+
+  it("round-trips a seat's narrative mode and clears it back to inherit", async () => {
+    const store = createPgRuntimeStore({ db: sharedDb(), orgId });
+    const at = new Date().toISOString();
+    await store.saveAgentControl({
+      agent,
+      paused: false,
+      layers: [],
+      approverNarrative: "off",
+      updatedAt: at,
+    });
+    let [row] = await store.loadAgentControls();
+    assert.equal(row?.approverNarrative, "off");
+    await store.saveAgentControl({ agent, paused: false, layers: [], updatedAt: at });
+    [row] = await store.loadAgentControls();
+    assert.equal(row?.approverNarrative, undefined);
+  });
+
+  it("round-trips, replaces and removes a target ABI", async () => {
+    const store = createPgRuntimeStore({ db: sharedDb(), orgId });
+    const abi = [
+      {
+        type: "function" as const,
+        name: "sweep",
+        inputs: [
+          { name: "to", type: "address" },
+          { name: "amount", type: "uint256" },
+        ],
+        outputs: [],
+        stateMutability: "nonpayable" as const,
+      },
+    ];
+    const at = new Date().toISOString();
+    await store.saveTargetAbi({ target, name: "Ops vault", abi, updatedAt: at });
+    await store.saveTargetAbi({ target, name: "Ops vault v2", abi, updatedAt: at });
+    const loaded = await store.loadTargetAbis();
+    assert.equal(loaded.length, 1);
+    assert.equal(loaded[0]?.name, "Ops vault v2");
+    assert.deepEqual(loaded[0]?.abi, abi);
+    await store.removeTargetAbi(target);
+    assert.deepEqual(await store.loadTargetAbis(), []);
   });
 });

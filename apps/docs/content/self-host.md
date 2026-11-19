@@ -684,6 +684,8 @@ Disabled (set or not, no org sees them):
   proof names one org's root. A sandbox org verifies no signature.
 - `LACREW_PLAN_REQUIRED`, `LACREW_DUAL_CONTROL`: each org sets its own rules
   through the API.
+- `LACREW_APPROVER_NARRATIVE`: every org defaults to `quarantine` and sets
+  seats to `off` through `PUT /agents/approver-narrative`.
 - `WALLET_WATCHLIST`, `LACREW_AUTO_EXECUTE`.
 - `RPC_URL`, `PRIVATE_KEY`, `MANAGER_PRIVATE_KEY`, `LACREW_ISSUER_PRIVATE_KEY`:
   this process's chain endpoint and keys serve no org.
