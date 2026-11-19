@@ -553,6 +553,22 @@ export async function createOrgWorld(
       );
     }
 
+    // Target ABIs (F2.6). Advisory — the chain enforces every cap whatever an
+    // approver is shown — but an unread registry decodes every registered
+    // call as `unknown`, so it is said rather than left to look like nothing
+    // was ever registered.
+    const abis = await runtime.hydrateTargetAbis();
+    if (abis.ok) {
+      if (abis.loaded > 0) {
+        console.log(`[@lacrew/orchestrator] ${abis.loaded} target ABI(s) restored`);
+      }
+    } else {
+      console.error(
+        "[@lacrew/orchestrator] target ABIs could not be read: approvers see registered " +
+          "targets' calls as unknown until the store is reachable and the process restarts.",
+      );
+    }
+
     // Connector write policy (F2.24). Loud on failure for the same reason as
     // controls: with no rules loaded every write is back on its declared
     // default, and with no asks loaded a confirmation someone already spent

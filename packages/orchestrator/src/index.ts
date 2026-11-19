@@ -57,13 +57,23 @@ export {
   type WalletAdapterId,
   type WalletAdapterOptions,
 } from "./walletAdapters.js";
-export { createRuntimeMcpBackend } from "./mcpBackend.js";
+export { createRuntimeMcpBackend, withheldMessage } from "./mcpBackend.js";
+export {
+  TargetAbis,
+  TargetAbiError,
+  normalizeTargetAbi,
+  type TargetAbiRecord,
+  type TargetAbiStore,
+} from "./targetAbis.js";
+export { WELL_KNOWN_ABIS, ALLOWANCE_GRANTING } from "./wellKnownAbis.js";
 export {
   buildApproverViews,
   decodeIntentCall,
   identifyParty,
   requesterNarrative,
   NARRATIVE_NOTICE,
+  NARRATIVE_WITHHELD_NOTICE,
+  type TargetAbiLookup,
   type ApproverIntentView,
   type ApproverCall,
   type ApproverParty,
@@ -501,3 +511,9 @@ export {
   type SkillPacksDeps,
   type SkillPacksSurface,
 } from "./skillPacks.js";
+export {
+  APPROVER_NARRATIVE_MODES,
+  approverNarrativeFromEnv,
+  isApproverNarrativeMode,
+  type ApproverNarrativeMode,
+} from "./agentControls.js";

@@ -6,7 +6,8 @@
  */
 
 import type { Ledger } from "@lacrew/core";
-import type { AgentControlRecord } from "./agentControls.js";
+import { isApproverNarrativeMode, type AgentControlRecord } from "./agentControls.js";
+import type { TargetAbiRecord } from "./targetAbis.js";
 import type { CrewBindingStore } from "./crewBindings.js";
 import type { ConnectorAskRecord, ConnectorAskStore } from "./connectorAsks.js";
 import type { HumanGateRecord, HumanGateStore } from "./humanGates.js";
@@ -42,6 +43,9 @@ import {
 import type { Message } from "./conversation.js";
 import {
   allAgentControlRows,
+  listTargetAbis,
+  upsertTargetAbi,
+  deleteTargetAbi,
   deleteConnectorMode,
   deleteCrewBinding,
   deleteDualControlRule,
@@ -140,6 +144,10 @@ export interface RuntimeStore
    */
   loadAgentControls(): Promise<AgentControlRecord[]>;
   saveAgentControl(record: AgentControlRecord): Promise<void>;
+  /** Operator-registered target ABIs the approver view decodes with (F2.6). */
+  loadTargetAbis(): Promise<TargetAbiRecord[]>;
+  saveTargetAbi(record: TargetAbiRecord): Promise<void>;
+  removeTargetAbi(target: string): Promise<void>;
   /** Crew conversation (F1.7) — the third channel, beside intents and proposals. */
   loadMessages(): Promise<Message[]>;
   saveMessage(message: Message): Promise<void>;
@@ -167,6 +175,7 @@ export function createMemoryRuntimeStore(): RuntimeStore {
   const sessions: SessionRecord[] = [];
   const intents: IntentRecord[] = [];
   const controls = new Map<string, AgentControlRecord>();
+  const targetAbiRecords = new Map<string, TargetAbiRecord>();
   const messages: Message[] = [];
   const connectorModes = new Map<string, ConnectorModeRecord>();
   const connectorAsks = new Map<string, ConnectorAskRecord>();
@@ -237,6 +246,13 @@ export function createMemoryRuntimeStore(): RuntimeStore {
     loadAgentControls: async () => [...controls.values()],
     saveAgentControl: async (record) => {
       controls.set(record.agent, record);
+    },
+    loadTargetAbis: async () => [...targetAbiRecords.values()],
+    saveTargetAbi: async (record) => {
+      targetAbiRecords.set(record.target, record);
+    },
+    removeTargetAbi: async (target) => {
+      targetAbiRecords.delete(target);
     },
     loadMessages: async () => [...messages],
     saveMessage: async (message) => {
@@ -550,7 +566,12 @@ function toRow(record: AgentControlRecord): AgentControlRow {
 }
 
 function fromRow(row: AgentControlRow): AgentControlRecord {
-  return { ...row, layers: (row.layers ?? []) as AgentControlRecord["layers"] };
+  const { approverNarrative, ...rest } = row;
+  return {
+    ...rest,
+    layers: (row.layers ?? []) as AgentControlRecord["layers"],
+    ...(isApproverNarrativeMode(approverNarrative) ? { approverNarrative } : {}),
+  };
 }
 
 /** Every column a message occupies. Exported so the mapping below is testable. */
@@ -696,6 +717,36 @@ export function createPgRuntimeStore(options: { db: DbHandle; orgId: string }): 
         await upsertAgentControlRow(db(), toRow(record));
       } catch (err) {
         warn("agent control save", err);
+      }
+    },
+    loadTargetAbis: async () => {
+      try {
+        return (await listTargetAbis(db())).map((row) => ({
+          target: row.target.toLowerCase() as `0x${string}`,
+          name: row.name,
+          abi: row.abi as TargetAbiRecord["abi"],
+          updatedAt: row.updatedAt,
+        }));
+      } catch (err) {
+        // Rethrown like agent controls: an empty answer would read as "no
+        // target was ever described" and every call would decode as unknown
+        // with nothing saying why.
+        warn("target abis load", err);
+        throw err;
+      }
+    },
+    saveTargetAbi: async (record) => {
+      try {
+        await upsertTargetAbi(db(), { ...record, abi: record.abi as unknown[] });
+      } catch (err) {
+        warn("target abi save", err);
+      }
+    },
+    removeTargetAbi: async (target) => {
+      try {
+        await deleteTargetAbi(db(), target);
+      } catch (err) {
+        warn("target abi delete", err);
       }
     },
     loadMessages: async () => {

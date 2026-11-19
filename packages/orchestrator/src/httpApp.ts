@@ -52,6 +52,8 @@ import {
 } from "./safeApproval.js";
 import { ancestorsOf } from "./flowScope.js";
 import { scopeOfThread } from "./conversation.js";
+import { isApproverNarrativeMode } from "./agentControls.js";
+import { TargetAbiError } from "./targetAbis.js";
 import { isAuthorized } from "./auth.js";
 import {
   CORS_PREFLIGHT_HEADERS,
@@ -2390,6 +2392,7 @@ export function createOrchestratorApp(options: OrchestratorAppOptions): Hono {
     jsonBig(c, {
       paused: runtime.listPausedAgents(),
       briefs: runtime.listAgentBriefs(),
+      approverNarrative: runtime.approverNarrativeSettings(),
       // False when stored controls were never read — an empty list then means
       // "unknown", not "nothing is paused and nobody is briefed".
       hydrated: runtime.agentControlsHydrated,
@@ -2498,6 +2501,76 @@ export function createOrchestratorApp(options: OrchestratorAppOptions): Hono {
     } catch (err) {
       return jsonBig(c, { error: err instanceof Error ? err.message : "brief_failed" }, 400);
     }
+  });
+
+  /**
+   * What an approving seat is shown of a requester's own words (F2.6).
+   * `off` withholds it entirely, `quarantine` keeps it bounded and labelled,
+   * `inherit` (or null) clears the seat back to the workspace default.
+   */
+  app.put("/agents/approver-narrative", async (c) => {
+    const body = await bodyOf<{ agent?: string; mode?: string | null }>(c);
+    if (!body.agent || !/^0x[0-9a-fA-F]{40}$/.test(body.agent)) {
+      return jsonBig(c, { error: "agent_required" }, 400);
+    }
+    const mode =
+      body.mode === null || body.mode === undefined || body.mode === "inherit" ? null : body.mode;
+    if (mode !== null && !isApproverNarrativeMode(mode)) {
+      return jsonBig(c, { error: "invalid_approver_narrative" }, 400);
+    }
+    const result = runtime.setApproverNarrative(body.agent as `0x${string}`, mode);
+    return jsonBig(c, {
+      agent: body.agent.toLowerCase(),
+      mode: mode ?? "inherit",
+      ...result,
+      workspaceDefault: runtime.approverNarrativeSettings().default,
+    });
+  });
+
+  /* ——— target ABIs (F2.6) ——— */
+
+  app.get("/targets/abi", (c) =>
+    jsonBig(c, { abis: runtime.targetAbis.list(), hydrated: runtime.targetAbis.hydrated }),
+  );
+
+  /**
+   * Register (or replace) the ABI the approver view decodes one target's
+   * calldata with. Only function fragments are kept; a body with none is
+   * refused, since an entry that decodes nothing would read as registered.
+   */
+  app.put("/targets/abi", async (c) => {
+    const body = await bodyOf<{ target?: unknown; name?: unknown; abi?: unknown }>(c);
+    try {
+      const record = runtime.targetAbis.set(body);
+      runtime.recordAudit({
+        type: "TargetAbiChanged",
+        at: record.updatedAt,
+        payload: {
+          target: record.target,
+          name: record.name,
+          functions: record.abi.length,
+          action: "set",
+        },
+      });
+      return jsonBig(c, { abi: record });
+    } catch (err) {
+      if (err instanceof TargetAbiError) return jsonBig(c, { error: err.message }, 400);
+      throw err;
+    }
+  });
+
+  app.delete("/targets/abi", (c) => {
+    const target = c.req.query("target") ?? "";
+    if (!/^0x[0-9a-fA-F]{40}$/.test(target)) return jsonBig(c, { error: "invalid_target" }, 400);
+    const removed = runtime.targetAbis.remove(target);
+    if (removed) {
+      runtime.recordAudit({
+        type: "TargetAbiChanged",
+        at: new Date().toISOString(),
+        payload: { target: target.toLowerCase(), action: "remove" },
+      });
+    }
+    return jsonBig(c, { removed });
   });
 
   /* ——— skill packs (F2.23) ——— */

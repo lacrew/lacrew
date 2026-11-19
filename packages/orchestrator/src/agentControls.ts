@@ -110,6 +110,35 @@ export type AgentBrief = {
 };
 
 /**
+ * What an approving seat is shown of the text a requester wrote (PRD F2.6).
+ *
+ * `quarantine` — bounded, inside an envelope marked untrusted (the default).
+ * `off` — withheld entirely: the seat decides on the structured record alone,
+ * and other participants' message bodies are withheld from its thread reads.
+ */
+export type ApproverNarrativeMode = "quarantine" | "off";
+
+export const APPROVER_NARRATIVE_MODES: readonly ApproverNarrativeMode[] = ["quarantine", "off"];
+
+export function isApproverNarrativeMode(value: unknown): value is ApproverNarrativeMode {
+  return value === "quarantine" || value === "off";
+}
+
+/** `LACREW_APPROVER_NARRATIVE`; an unknown value is refused, never guessed. */
+export function approverNarrativeFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): ApproverNarrativeMode {
+  const raw = env.LACREW_APPROVER_NARRATIVE?.trim();
+  if (!raw) return "quarantine";
+  if (!isApproverNarrativeMode(raw)) {
+    throw new Error(
+      `LACREW_APPROVER_NARRATIVE must be one of ${APPROVER_NARRATIVE_MODES.join(", ")} (got "${raw}")`,
+    );
+  }
+  return raw;
+}
+
+/**
  * Ceiling on a stored brief, measured on the *rendered* prompt.
  *
  * Measuring the raw fields would let twenty short skills past a limit that the
@@ -240,6 +269,8 @@ export type AgentControlRecord = {
   pausedAt?: string;
   pausedReason?: string;
   layers: BriefLayer[];
+  /** How this seat is shown a requester's words when it approves; absent inherits. */
+  approverNarrative?: ApproverNarrativeMode;
   updatedAt: string;
 };
 
@@ -269,6 +300,7 @@ export interface AgentControlStore {
 export class AgentControls {
   private readonly paused = new Map<string, { at: string; reason?: string }>();
   private readonly briefs = new Map<string, AgentBrief>();
+  private readonly narrative = new Map<string, ApproverNarrativeMode>();
   private store?: AgentControlStore;
   /** Surfaced so a caller can report "loaded from store" vs "nothing was stored". */
   hydrated = false;
@@ -297,6 +329,9 @@ export class AgentControls {
               : { at: record.pausedAt },
           );
         }
+        if (isApproverNarrativeMode(record.approverNarrative)) {
+          this.narrative.set(key, record.approverNarrative);
+        }
         if (record.layers.length > 0) {
           this.briefs.set(key, {
             agent: key,
@@ -324,6 +359,7 @@ export class AgentControls {
         ...(paused ? { pausedAt: paused.at } : {}),
         ...(paused?.reason ? { pausedReason: paused.reason } : {}),
         layers: this.briefs.get(key)?.layers ?? [],
+        ...(this.narrative.has(key) ? { approverNarrative: this.narrative.get(key) } : {}),
         updatedAt: at,
       })
       .catch(() => {
@@ -392,6 +428,29 @@ export class AgentControls {
 
   listBriefs(): AgentBrief[] {
     return [...this.briefs.values()];
+  }
+
+  /** The seat's own setting, or null when it inherits the workspace default. */
+  approverNarrativeFor(agent: string): ApproverNarrativeMode | null {
+    return this.narrative.get(this.key(agent)) ?? null;
+  }
+
+  /**
+   * Set (or, with null, clear back to the workspace default) how a seat is
+   * shown requester text. Returns true when this call changed the state.
+   */
+  setApproverNarrative(agent: string, mode: ApproverNarrativeMode | null, at: string): boolean {
+    const key = this.key(agent);
+    const before = this.narrative.get(key) ?? null;
+    if (before === mode) return false;
+    if (mode === null) this.narrative.delete(key);
+    else this.narrative.set(key, mode);
+    this.persist(key, at);
+    return true;
+  }
+
+  listApproverNarrative(): Array<{ agent: string; mode: ApproverNarrativeMode }> {
+    return [...this.narrative.entries()].map(([agent, mode]) => ({ agent, mode }));
   }
 
   /** The composed system prompt this agent should run under. */

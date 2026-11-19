@@ -6,7 +6,7 @@
 
 import type { McpToolBackend } from "@lacrew/adapter-agents-mcp";
 import type { SessionScope } from "@lacrew/core";
-import { scopeOfThread } from "./conversation.js";
+import { scopeOfThread, type Message } from "./conversation.js";
 import type { CrewRuntime } from "./runtime.js";
 
 /**
@@ -31,7 +31,7 @@ export function createRuntimeMcpBackend(
       simulation, aggregates — with the requester's own words fenced off as
       untrusted. See `approverView.ts` for why.
     */
-    listPendingIntents: () => runtime.approverQueue(),
+    listPendingIntents: () => runtime.approverQueue(actor.principal),
     proposeIntent: async (input) => {
       const { intentId, verdict, txHash, simTxId } = await runtime.propose({
         ...input,
@@ -107,17 +107,52 @@ export function createRuntimeMcpBackend(
       const scope = scopeOfThread(input.thread);
       if (!scope) throw new Error(`unknown_thread: ${input.thread}`);
       // Another participant's message is their claim, and a reader deciding
-      // anything (an approval above all) must see it as such.
+      // anything (an approval above all) must see it as such. A seat whose
+      // approver narrative is `off` gets other agents' bodies withheld too:
+      // otherwise the requester's words, kept out of the approval queue,
+      // would reach the seat through its thread — or through a flow step that
+      // interpolates this read into the approver's prompt.
       const reader = (actor.principal ?? runtime.workerAddress).toLowerCase();
+      const withhold = runtime.approverNarrativeFor(reader) === "off";
+      const view = (m: Message) => {
+        if (m.author.toLowerCase() === reader) return m;
+        if (withhold && m.authorKind === "agent") return withheldMessage(m);
+        return { ...m, untrusted: true as const };
+      };
       return {
         thread: input.thread,
-        messages: runtime
-          .thread(scope, input.limit ?? 50)
-          .map((m) => (m.author.toLowerCase() === reader ? m : { ...m, untrusted: true as const })),
-        openQuestions: runtime.openQuestions(scope),
+        messages: runtime.thread(scope, input.limit ?? 50).map(view),
+        openQuestions: runtime.openQuestions(scope).map(view),
+        ...(withhold ? { withheld: "agent_bodies" as const } : {}),
       };
     },
     // invokeAgent is layered on in createFlowsSurface: delegation runs a flow,
     // which only the flows surface can do.
+  };
+}
+
+/**
+ * A message with everything its author wrote removed: who, when, what kind,
+ * and what it points at stay, so the reader can see that something was said
+ * and look it up, but no sentence of it reaches the reader's model.
+ */
+export function withheldMessage(m: Message): Omit<Message, "body"> & {
+  body: "";
+  untrusted: true;
+  withheld: true;
+} {
+  return {
+    id: m.id,
+    threadId: m.threadId,
+    at: m.at,
+    author: m.author,
+    authorKind: m.authorKind,
+    kind: m.kind,
+    body: "",
+    ...(m.replyTo ? { replyTo: m.replyTo } : {}),
+    ...(m.to ? { to: m.to } : {}),
+    ...(m.refs?.length ? { refs: m.refs } : {}),
+    untrusted: true,
+    withheld: true,
   };
 }
