@@ -296,6 +296,17 @@ export function identifyParty(
 }
 
 /**
+ * Whether a body quotes an intent id as a whole token. Onchain ids are small
+ * integers, so a substring test would tie "1" to every message mentioning
+ * "150 USDC".
+ */
+function mentionsId(id: string): (body: string) => boolean {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`(^|[^0-9A-Za-z_])${escaped}($|[^0-9A-Za-z_])`);
+  return (body) => pattern.test(body);
+}
+
+/**
  * The requester's own messages that point at this intent — by a `ref`, a
  * `ref` block, or by quoting its id. Only the requester's: a human or a peer
  * writing about the intent is not the party asking for it.
@@ -306,13 +317,14 @@ export function requesterNarrative(
   mode: ApproverNarrativeMode = "quarantine",
 ): ApproverNarrative {
   const requester = intent.agent.toLowerCase();
+  const quoted = mentionsId(intent.id);
   const matched = messages
     .filter((m) => m.author.toLowerCase() === requester)
     .filter(
       (m) =>
         m.refs?.some((r) => r.kind === "intent" && r.id === intent.id) ||
         m.blocks?.some((b) => b.kind === "ref" && b.ref === "intent" && b.id === intent.id) ||
-        m.body.includes(intent.id),
+        quoted(m.body),
     )
     .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0));
   if (mode === "off") {

@@ -219,6 +219,23 @@ describe("decodeIntentCall: well-known contracts and flags", () => {
   });
 });
 
+describe("requester narrative matching", () => {
+  it("ties a quoted id to the intent as a whole token, not as a substring", () => {
+    const [view] = buildApproverViews([intent({ id: "1" })], {
+      nodes,
+      messages: [
+        message({ id: "quoted", body: 'about {"intentId":"1"} please' }),
+        message({ id: "prose", body: "intent 1 is the one" }),
+        message({ id: "amount", body: "spent 150 USDC on data, unrelated" }),
+      ],
+    });
+    assert.deepEqual(
+      view!.requesterNarrative.messages.map((m) => m.id),
+      ["quoted", "prose"],
+    );
+  });
+});
+
 describe("requester narrative off", () => {
   it("keeps the count and drops every body", () => {
     const [view] = buildApproverViews([intent()], {
