@@ -295,7 +295,7 @@ export const spendScenarios: Scenario[] = [
     b.allow("root", "root", "target", 0n);
   }),
 
-  scenario("a call with value settles pull-style, and a failed call is contained", (b) => {
+  scenario("a call with value settles pull-style, and a failed call reverts the action", (b) => {
     b.crew();
     // A call with value approves the target instead of paying it. An address with no
     // code accepts the call but pulls nothing, so the value returns to the allowance.
@@ -316,21 +316,24 @@ export const spendScenarios: Scenario[] = [
     });
     b.expect({ allowance: { worker: 200n * USDC }, balance: { target: 0n } });
 
-    // A contract that refuses the router: the call fails, the action still stands.
+    // A contract that refuses the router: the call fails, and the whole action
+    // reverts with the target's own error, so nothing is spent or counted.
     b.call("root", "@whitelist", "setAllowed", ["@registry", true]);
-    b.call(
+    b.proposeReverts("NotAuthorized", "worker", "worker", "@registry", 10n * USDC, "OrgRegistry", {
+      call: { to: "@registry", fn: "addNode", args: ["worker2", KIND.worker, "root"] },
+    });
+    b.expect({ nodes: { worker2: null }, allowance: { worker: 200n * USDC } });
+
+    // Calldata no function answers reverts without data: ActionCallFailed.
+    b.proposeReverts(
+      "ActionCallFailed",
       "worker",
-      "@router",
-      "propose",
-      [
-        "worker",
-        "@registry",
-        0n,
-        { call: { to: "@registry", fn: "addNode", args: ["worker2", KIND.worker, "root"] } },
-      ],
-      { verdict: "ALLOW", events: ["ActionExecuted"] },
+      "worker",
+      "@registry",
+      0n,
+      undefined,
+      "0xdeadbeef",
     );
-    b.expect({ nodes: { worker2: null } });
 
     // The router holds the treasury's token mid-settlement, so the token is never a
     // target, whitelisted or not.
