@@ -123,6 +123,7 @@ contract PolicyModuleListingTest is Test {
         market.purchase(LISTING, 25 * ONE);
         PolicyStack attached = _stackWithListedModule();
 
+        vm.prank(root);
         uint256 id = gov.propose(
             GovernanceModule.Tier.High,
             address(router),

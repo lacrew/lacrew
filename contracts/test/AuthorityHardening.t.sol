@@ -202,9 +202,13 @@ contract AuthorityHardeningTest is Test {
     function test_lowTierCannotTransferGovernor() public {
         bytes memory data = abi.encodeCall(Treasury.setGovernor, (stranger));
         vm.expectRevert(GovernanceModule.GovernorTransferNotHighTier.selector);
+        vm.prank(root);
         gov.propose(GovernanceModule.Tier.Low, address(treasury), data);
-        // Other low-tier calls are unaffected.
-        gov.propose(GovernanceModule.Tier.Low, address(treasury), abi.encodeCall(Treasury.setStreamer, (stranger)));
+        // Nor may it be allow-listed onto the low tier.
+        bytes4 setGovernor = gov.SET_GOVERNOR_SELECTOR();
+        vm.expectRevert(GovernanceModule.GovernorTransferNotHighTier.selector);
+        vm.prank(root);
+        gov.setLowTierSelector(setGovernor, true);
     }
 
     function test_lowTierCannotWithdraw() public {
@@ -217,6 +221,7 @@ contract AuthorityHardeningTest is Test {
     function test_highTierCanTransferGovernor() public {
         treasury.setGovernor(address(gov));
         bytes memory data = abi.encodeCall(Treasury.setGovernor, (stranger));
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(treasury), data);
         vm.prank(root);
         gov.vote(id, true);

@@ -8,8 +8,14 @@ interface IRootRotatable {
 
 /// @title GovernanceModule
 /// @notice Quorum voting for constitutional actions (hire/fire, budgets, policy upgrades).
-/// @dev Low tier: execute after all-seat quorum. High tier: human-seat quorum + timelock;
-///      agent seats may vote as review authority but do not satisfy high-tier final say.
+/// @dev Low tier: all-seat quorum, more yes-weight than no-weight, and a short delay
+///      (`lowTierDelay`) that gives every human seat a window to vote it down or veto
+///      it. Only allow-listed actions may ride the low tier (`lowTierSelector`, seeded
+///      with an agent hire); every other call — firing, reparenting, treasury spenders,
+///      router policies, grants, governor transfers, this module — is High tier.
+///      High tier: human-seat quorum + timelock; agent seats may vote as review
+///      authority but do not satisfy high-tier final say. On both tiers a proposal
+///      executes only while its own electorate's yes-weight exceeds its no-weight.
 ///      Any funded Human seat (root included) may veto before execution — the human
 ///      safety valve is shared, never delegated to agents. Power is role-weighted per seat.
 ///
@@ -107,9 +113,16 @@ contract GovernanceModule {
     uint256 public votingPeriod = 3 days;
     /// @notice Delay after the voting deadline before high-tier execution. May be zero.
     uint256 public highTierTimelock = 1 days;
-    /// @notice When true, a high-tier proposal backed by ALL human voting weight
-    ///         executes without waiting for the timelock.
+    /// @notice When true, a proposal backed by ALL human voting weight executes without
+    ///         waiting for its delay (the high-tier timelock or the low-tier delay).
     bool public unanimityFastPath = true;
+    /// @notice Minimum age before a low-tier proposal may execute, so no agent majority
+    ///         can pass and execute an action in the block it was proposed. Every seated
+    ///         human gets this long to vote it down or veto it. May be zero.
+    uint256 public lowTierDelay = 1 days;
+    /// @notice Function selectors a proposal may carry on the low tier. Anything not
+    ///         listed is High tier. Curated by the root or by governance.
+    mapping(bytes4 => bool) public lowTierSelector;
 
     uint256 public constant MIN_VOTING_PERIOD = 1 hours;
     uint256 public constant MAX_VOTING_PERIOD = 30 days;
@@ -135,6 +148,12 @@ contract GovernanceModule {
     /// @notice `withdraw(address,uint256)` — Treasury's outflow to an arbitrary address.
     ///         Proposals carrying it are always High tier.
     bytes4 public constant WITHDRAW_SELECTOR = bytes4(keccak256("withdraw(address,uint256)"));
+    /// @notice `OrgRegistry.addNode(address,NodeKind,address)` — hiring an agent, the one
+    ///         action seeded as low tier. A `HumanRoot` kind is refused on the low tier:
+    ///         the router treats such a node as a final approver.
+    bytes4 public constant ADD_NODE_SELECTOR = bytes4(keccak256("addNode(address,uint8,address)"));
+    /// @dev `IOrgRegistry.NodeKind.HumanRoot`, as `addNode` ABI-encodes it.
+    uint256 private constant HUMAN_ROOT_KIND = 0;
 
     event ProposalCreated(
         uint256 indexed proposalId,
@@ -157,6 +176,8 @@ contract GovernanceModule {
     event TimingUpdated(uint256 votingPeriod, uint256 highTierTimelock);
     event UnanimityFastPathUpdated(bool enabled);
     event RootRotated(address indexed oldRoot, address indexed newRoot);
+    event LowTierDelayUpdated(uint256 lowTierDelay);
+    event LowTierSelectorUpdated(bytes4 indexed selector, bool allowed);
 
     error ProposalNotActive(uint256 proposalId);
     error ProposalNotFound(uint256 proposalId);
@@ -183,6 +204,11 @@ contract GovernanceModule {
     error RootAuthorityNotHighTier();
     /// @dev A root is a human; an agent seat cannot be handed one.
     error RootIsAgentSeat(address account);
+    /// @dev The action is not allow-listed for the low tier; propose it as High tier.
+    error ActionNotLowTier(bytes4 selector);
+    /// @dev Yes-weight does not exceed no-weight; the proposal cannot execute yet.
+    error Outvoted(uint256 proposalId);
+    error InvalidLowTierDelay(uint256 lowTierDelay);
 
     /// @dev Root acts directly; the module itself qualifies so an executed High-tier
     ///      proposal targeting this contract can retune parameters through governance.
@@ -211,6 +237,8 @@ contract GovernanceModule {
     constructor(address humanRoot_, uint256 rootPower_) {
         if (humanRoot_ == address(0)) revert ZeroAddress();
         humanRoot = humanRoot_;
+        lowTierSelector[ADD_NODE_SELECTOR] = true;
+        emit LowTierSelectorUpdated(ADD_NODE_SELECTOR, true);
         if (rootPower_ > 0) {
             votingPower[humanRoot_] = rootPower_;
             seatRole[humanRoot_] = SeatRole.Human;
@@ -363,6 +391,21 @@ contract GovernanceModule {
         emit UnanimityFastPathUpdated(enabled);
     }
 
+    /// @notice Update the minimum age of a low-tier proposal before it may execute.
+    function setLowTierDelay(uint256 lowTierDelay_) external onlyRootOrGovernance {
+        if (lowTierDelay_ > MAX_TIMELOCK) revert InvalidLowTierDelay(lowTierDelay_);
+        lowTierDelay = lowTierDelay_;
+        emit LowTierDelayUpdated(lowTierDelay_);
+    }
+
+    /// @notice Allow or refuse a function selector on the low tier. A governor transfer
+    ///         can never be allow-listed.
+    function setLowTierSelector(bytes4 selector, bool allowed) external onlyRootOrGovernance {
+        if (allowed && selector == SET_GOVERNOR_SELECTOR) revert GovernorTransferNotHighTier();
+        lowTierSelector[selector] = allowed;
+        emit LowTierSelectorUpdated(selector, allowed);
+    }
+
     /// @notice Low-tier quorum actually enforced: never more yes-weight than the
     ///         seated electorate holds, so quorum cannot demand absent voters.
     function effectiveQuorumYes() public view returns (uint256) {
@@ -378,16 +421,19 @@ contract GovernanceModule {
         return quorumHumanYes;
     }
 
-    /// @notice Create a constitutional proposal bound to executable calldata.
+    /// @notice Create a constitutional proposal bound to executable calldata. Only a
+    ///         seated voter (or the root while it may act) may propose.
     ///         Proposals targeting this module (parameter changes) must be High tier
     ///         so agent seats can never re-weight the electorate via a low-tier vote;
     ///         the same holds for any proposal that would rebind a governed contract's
     ///         governor (`SET_GOVERNOR_SELECTOR`), which is the electorate by proxy.
+    ///         Beyond those, a low-tier proposal must carry an allow-listed selector.
     function propose(
         Tier tier,
         address target,
         bytes calldata data
     ) external returns (uint256 proposalId) {
+        if (votingPower[msg.sender] == 0 && !_rootMayAct()) revert NoVotingPower(msg.sender);
         if (target == address(0)) revert ZeroAddress();
         if (target == address(this) && tier != Tier.High) revert SelfTargetNotHighTier();
         if (tier != Tier.High && data.length >= 4) {
@@ -400,6 +446,9 @@ contract GovernanceModule {
         if (tier != Tier.High && data.length >= 4 && bytes4(data[:4]) == WITHDRAW_SELECTOR) {
             revert WithdrawNotHighTier();
         }
+        // Everything not allow-listed (the explicit refusals above name the governed
+        // actions that have their own error) is High tier only.
+        if (tier != Tier.High) _requireLowTierAction(target, data);
         proposalId = nextProposalId++;
         bytes32 actionHash = keccak256(abi.encode(target, data));
         uint256 deadline = block.timestamp + votingPeriod;
@@ -413,10 +462,27 @@ contract GovernanceModule {
             noVotes: 0,
             yesHumanVotes: 0,
             deadline: deadline,
-            eta: tier == Tier.High ? deadline + highTierTimelock : 0,
+            eta: tier == Tier.High ? deadline + highTierTimelock : block.timestamp + lowTierDelay,
             state: ProposalState.Active
         });
         emit ProposalCreated(proposalId, msg.sender, tier, target, actionHash);
+    }
+
+    /// @dev What may ride the low tier: never this module, never a governor transfer,
+    ///      and otherwise only an allow-listed selector. A hire may not seat a
+    ///      `HumanRoot` node, which the router would accept as a final approver.
+    function _requireLowTierAction(address target, bytes calldata data) private view {
+        if (target == address(this)) revert SelfTargetNotHighTier();
+        if (data.length < 4) revert ActionNotLowTier(bytes4(0));
+        bytes4 selector = bytes4(data[:4]);
+        if (selector == SET_GOVERNOR_SELECTOR) revert GovernorTransferNotHighTier();
+        if (!lowTierSelector[selector]) revert ActionNotLowTier(selector);
+        if (
+            selector == ADD_NODE_SELECTOR
+                && (data.length < 100 || uint256(bytes32(data[36:68])) == HUMAN_ROOT_KIND)
+        ) {
+            revert ActionNotLowTier(selector);
+        }
     }
 
     /// @notice Cast a yes/no vote weighted by the caller's seat.
@@ -462,30 +528,35 @@ contract GovernanceModule {
         emit ProposalVetoed(proposalId, msg.sender);
     }
 
-    /// @notice Execute a proposal that has met the tier's effective quorum (and, for
-    ///         high tier, the timelock — unless every human seat has already voted yes).
-    /// @dev Once the voting deadline has passed, a proposal with more weight against
-    ///      than for is closed as Defeated instead. Each tier is defeated by the same
-    ///      electorate that can pass it: all seats on low tier, human seats only on
-    ///      high tier. Agent seats review a high-tier proposal; their weight neither
-    ///      defeats one the humans backed nor rescues one the humans voted down.
+    /// @notice Execute a proposal that has met the tier's effective quorum, whose
+    ///         yes-weight exceeds its no-weight, and whose delay has elapsed (the
+    ///         high-tier timelock or the low-tier delay) — unless every human seat has
+    ///         already voted yes.
+    /// @dev Each tier is carried and defeated by the same electorate: all seats on low
+    ///      tier, human seats only on high tier. Agent seats review a high-tier
+    ///      proposal; their weight neither defeats one the humans backed nor rescues
+    ///      one the humans voted down. A proposal whose yes-weight does not exceed its
+    ///      no-weight reverts `Outvoted` while voting is open and is closed as Defeated
+    ///      once the voting deadline has passed.
     function execute(uint256 proposalId) external {
         Proposal storage p = proposals[proposalId];
         if (p.state != ProposalState.Active) revert ProposalNotActive(proposalId);
 
-        if (p.tier == Tier.High) {
+        bool high = p.tier == Tier.High;
+        if (high) {
             if (p.yesHumanVotes < effectiveQuorumHumanYes()) revert QuorumNotMet(proposalId);
-            if (block.timestamp < p.eta && !_unanimousHumanYes(p)) {
-                revert TimelockNotElapsed(proposalId, p.eta);
-            }
         } else if (p.yesVotes < effectiveQuorumYes()) {
             revert QuorumNotMet(proposalId);
         }
+        if (block.timestamp < p.eta && !_unanimousHumanYes(p)) {
+            revert TimelockNotElapsed(proposalId, p.eta);
+        }
 
-        bool outvoted = p.tier == Tier.High
-            ? noHumanVotes[proposalId] > p.yesHumanVotes
-            : p.noVotes > p.yesVotes;
-        if (block.timestamp > p.deadline && outvoted) {
+        bool carried = high
+            ? p.yesHumanVotes > noHumanVotes[proposalId]
+            : p.yesVotes > p.noVotes;
+        if (!carried) {
+            if (block.timestamp <= p.deadline) revert Outvoted(proposalId);
             p.state = ProposalState.Defeated;
             emit ProposalDefeated(proposalId);
             return;
@@ -497,7 +568,7 @@ contract GovernanceModule {
         emit ProposalExecuted(proposalId);
     }
 
-    /// @dev The timelock shields humans who have not voted; unanimity means none remain.
+    /// @dev The delay shields humans who have not voted; unanimity means none remain.
     ///      Any human no-vote (or weight granted after the yes votes) breaks unanimity,
     ///      so the fast path only fires when every seated human backs the action now.
     function _unanimousHumanYes(Proposal storage p) private view returns (bool) {
