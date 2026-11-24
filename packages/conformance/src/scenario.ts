@@ -327,10 +327,15 @@ export class ScenarioBuilder {
   }
 
   /** Propose, collect yes votes and execute; returns the proposal id. */
-  pass(action: CallSpec, tier: number = LOW, voters: Ref[] = ["root"]): number {
-    const id = this.propose("root", tier, action);
+  pass(
+    action: CallSpec,
+    tier: number = LOW,
+    voters: Ref[] = ["root"],
+    proposer: Ref = "root",
+  ): number {
+    const id = this.propose(proposer, tier, action);
     for (const voter of voters) this.vote(voter, id);
-    this.execute("root", id);
+    this.execute(proposer, id);
     return id;
   }
 
