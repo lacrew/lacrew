@@ -76,6 +76,17 @@ pnpm --filter @lacrew/cli exec tsx src/index.ts approve 1 --rpc http://127.0.0.1
 #   75 USDC (75000000) lands on x402Target. Replace `1` with the intentId from /tick.
 # Optional hosted UI: Approvals at lacrew.xyz does the same thing.
 
+# Terminal D (again) — a spend within the cap: propose 30 USDC from the CLI.
+# <worker> and <x402Target> are in apps/cli/.lacrew/deployments-31337.json (written by deploy).
+pnpm --filter @lacrew/cli exec tsx src/index.ts propose <worker> <x402Target> 30000000 --rpc http://127.0.0.1:8545
+# → {"sessionId":"2", "keyAddress":"0x…", "maxValue":"200000000", "allowedTarget":"0x…",
+#    "intentId":"0", "verdict":"ALLOW", "txHash":"0x…"}
+#   ALLOW: it paid out at once, no approval step.
+#   Units: USDC has 6 decimals, so 30000000 = 30 USDC (and /tick's 75000000 = 75 USDC).
+#   The cap is 50 USDC here: read it at GET /org (the worker's "allowance.cap": "50000000").
+#   List intents and their ids: curl http://127.0.0.1:8788/intents
+#   (it lists intents still waiting on a human, e.g. the one /tick escalates; settled ones are not shown).
+
 # Terminal E — event indexer (optional)
 pnpm dev:indexer
 ```
