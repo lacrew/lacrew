@@ -42,12 +42,13 @@ members in order: the first DENY returns immediately; otherwise any ESCALATE
 is sticky and returned; otherwise ALLOW. Standard modules shipped as
 reference:
 
-| Module             | Behavior                                                                                                                                                                                                                                                                                |
-| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `SpendCapPolicy`   | Per-agent cap on `value`; over-cap → ESCALATE. Mutator `setAgentCap` is admin- or governor-gated.                                                                                                                                                                                       |
-| `WhitelistPolicy`  | Unlisted `target` → DENY. Mutator `setAllowed` is admin- or governor-gated.                                                                                                                                                                                                             |
-| `RateLimitPolicy`  | Sliding-window action count per agent; over-rate → ESCALATE. The router records via `IRateRecorder.record(agent)` — into the node's own recorder when one is bound (`rateRecorderOf`), else the global one. Params are constructor immutables: a different limit is a different module. |
-| `TimeWindowPolicy` | Outside the configured UTC window → DENY.                                                                                                                                                                                                                                               |
+| Module                  | Behavior                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SpendCapPolicy`        | Per-agent cap on `value`; over-cap → ESCALATE. Mutator `setAgentCap` is admin- or governor-gated.                                                                                                                                                                                                                                                                                                                                 |
+| `WhitelistPolicy`       | Unlisted `target` → DENY. Mutator `setAllowed` is admin- or governor-gated.                                                                                                                                                                                                                                                                                                                                                       |
+| `RateLimitPolicy`       | Sliding-window action count per agent; over-rate → ESCALATE. The router records via `IRateRecorder.record(agent)` — into the node's own recorder when one is bound (`rateRecorderOf`), else the global one. Params are constructor immutables: a different limit is a different module.                                                                                                                                           |
+| `CumulativeValuePolicy` | Settled value per agent — and per (agent, target) when `maxValuePerTarget` is non-zero — summed over an anchored window; a spend that would cross either budget → ESCALATE. The router records via `IValueRecorder.recordValue(agent, target, value)` on every settled spend with value — into the node's own recorder when one is bound (`valueRecorderOf`), else the global `valueRecorder`. Params are constructor immutables. |
+| `TimeWindowPolicy`      | Outside the configured UTC window → DENY.                                                                                                                                                                                                                                                                                                                                                                                         |
 
 Stacks bind per node through `EscalationRouter.setNodePolicy(node, module)`
 (governor-gated once a governor is set). A node whose stack carries its own
@@ -55,6 +56,10 @@ Stacks bind per node through `EscalationRouter.setNodePolicy(node, module)`
 (same gating): recording is what fills the module's windows, and a custom
 rate module the router never records into silently never trips — the
 per-node recorder exists to make that failure impossible.
+A node whose stack carries its own `CumulativeValuePolicy` needs
+`setNodeValueRecorder(node, module)` for the same reason. Both modules bind
+their recorder once (`setRecorder`, deployer-only), and every bound recorder
+is a protected target the router refuses to call on an agent's behalf.
 
 ### 2.1 Third-party modules — writing one, listing one
 
