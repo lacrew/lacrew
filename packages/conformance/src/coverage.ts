@@ -47,6 +47,12 @@ export const NOT_SIMULATED: Record<string, string> = {
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
   "Treasury.SafeERC20FailedOperation":
     "SafeERC20 guard for tokens that return false. MockUSDC reverts with its own error instead.",
+  "Treasury.TransferAmountMismatch":
+    "Raised when a token moves less than asked (fee-on-transfer). MockUSDC always moves the exact amount; the Foundry suite drives it with a fee token.",
+  "EscalationRouter.SafeERC20FailedOperation":
+    "SafeERC20 guard on the router's approvals and transfers, for tokens that return false. MockUSDC never does.",
+  "EscalationRouter.ReentrancyGuardReentrantCall":
+    "A settlement target calling back into the router. The router's own call swallows the revert (callOk false), and no simulated contract calls the router back; the Foundry suite covers it.",
 };
 
 /**

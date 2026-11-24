@@ -295,13 +295,26 @@ export const spendScenarios: Scenario[] = [
     b.allow("root", "root", "target", 0n);
   }),
 
-  scenario("an action's calldata is called on its target, and a failed call is contained", (b) => {
+  scenario("a call with value settles pull-style, and a failed call is contained", (b) => {
     b.crew();
-    // An address with no code accepts any call.
+    // A call with value approves the target instead of paying it. An address with no
+    // code accepts the call but pulls nothing, so the value returns to the allowance.
+    const pullNothing = [
+      "Transfer",
+      "AllowanceSpent",
+      "Approval",
+      "Approval",
+      "Approval",
+      "Transfer",
+      "AllowanceRefunded",
+      "SettlementReturned",
+      "ActionExecuted",
+    ];
     b.call("worker", "@router", "propose", ["worker", "target", 10n * USDC, "0x1234"], {
       verdict: "ALLOW",
-      events: ["Transfer", "AllowanceSpent", "ActionExecuted"],
+      events: pullNothing,
     });
+    b.expect({ allowance: { worker: 200n * USDC }, balance: { target: 0n } });
 
     // A contract that refuses the router: the call fails, the action still stands.
     b.call("root", "@whitelist", "setAllowed", ["@registry", true]);
@@ -319,21 +332,16 @@ export const spendScenarios: Scenario[] = [
     );
     b.expect({ nodes: { worker2: null } });
 
-    // A contract that accepts it: the callee's own effects land.
+    // The router holds the treasury's token mid-settlement, so the token is never a
+    // target, whitelisted or not.
     b.call("root", "@whitelist", "setAllowed", ["@token", true]);
-    b.call(
-      "worker",
-      "@router",
-      "propose",
-      ["worker", "@token", 0n, { call: { to: "@token", fn: "approve", args: ["target2", 5n] } }],
-      { verdict: "ALLOW", events: ["Approval", "ActionExecuted"] },
-    );
-
-    // An escalated intent carries its calldata to the approval.
-    const intent = b.escalate("worker", "worker", "target", 75n * USDC, "0xabcdef");
-    b.resolve("manager", intent, true, {
-      events: ["Transfer", "AllowanceSpent", "ActionExecuted", "IntentResolved"],
+    b.proposeReverts("ProtectedTarget", "worker", "worker", "@token", 0n, undefined, {
+      call: { to: "@token", fn: "approve", args: ["target2", 5n] },
     });
-    b.expect({ allowance: { worker: 115n * USDC }, balance: { target: 85n * USDC } });
+
+    // An escalated intent carries its calldata to the approval, and settles the same way.
+    const intent = b.escalate("worker", "worker", "target", 75n * USDC, "0xabcdef");
+    b.resolve("manager", intent, true, { events: [...pullNothing, "IntentResolved"] });
+    b.expect({ allowance: { worker: 200n * USDC }, balance: { target: 0n } });
   }),
 ];
