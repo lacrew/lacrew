@@ -222,6 +222,11 @@ const GOVERNANCE: HandlerTable = {
   setQuorumHumanYes: (ctx, [q]) => governance.setQuorumHumanYes(ctx, big(q)),
   setTiming: (ctx, [period, timelock]) => governance.setTiming(ctx, big(period), big(timelock)),
   setUnanimityFastPath: (ctx, [enabled]) => governance.setUnanimityFastPath(ctx, enabled),
+  lowTierDelay: (ctx) => governance.lowTierDelay(ctx),
+  lowTierSelector: (ctx, [selector]) => governance.lowTierSelector(ctx, selector),
+  setLowTierDelay: (ctx, [delay]) => governance.setLowTierDelay(ctx, big(delay)),
+  setLowTierSelector: (ctx, [selector, allowed]) =>
+    governance.setLowTierSelector(ctx, selector, allowed),
   propose: (ctx, [tier, target, data]) => governance.propose(ctx, enumValue(tier, 2), target, data),
   vote: (ctx, [id, support]) => governance.vote(ctx, big(id), support),
   veto: (ctx, [id]) => governance.veto(ctx, big(id)),
