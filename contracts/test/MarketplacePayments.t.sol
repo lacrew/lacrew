@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {MarketplacePayments} from "../src/MarketplacePayments.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {FeeOnTransferToken} from "./utils/SettlementFixtures.sol";
+import {MockSettlementRouter} from "./mocks/MockSettlementRouter.sol";
 
 contract MarketplacePaymentsTest is Test {
     MockUSDC internal usdc;
@@ -324,53 +325,109 @@ contract MarketplacePaymentsTest is Test {
 
     // ——— Org-funded rail (purchaseFor) ———
 
-    /// The router approves the target for the intent's value, then calls it. Simulated
-    /// here by funding the router and approving `approved` before purchaseFor.
-    function _approveAndSettle(bytes32 id, address buyer_, uint256 approved, uint256 maxPrice)
-        private
-    {
-        address router = market.settlementRouter();
-        usdc.mint(router, approved);
-        vm.prank(router);
-        usdc.approve(address(market), approved);
-        vm.prank(router);
-        market.purchaseFor(id, buyer_, maxPrice);
+    function _wireRouter() private returns (MockSettlementRouter router) {
+        router = new MockSettlementRouter();
+        vm.prank(governor);
+        market.setSettlementRouter(address(router));
     }
 
-    function _wireRouter() private returns (address router) {
-        router = makeAddr("router");
-        vm.prank(governor);
-        market.setSettlementRouter(router);
+    function _purchaseForCall(bytes32 id, address who, uint256 maxPrice)
+        private
+        pure
+        returns (bytes memory)
+    {
+        return abi.encodeCall(MarketplacePayments.purchaseFor, (id, who, maxPrice));
+    }
+
+    /// The router approves the target for `approved`, then calls it, reporting that it
+    /// paid `approved`. `approved` may differ from the price: that is what is under test.
+    function _approveAndSettle(bytes32 id, address who, uint256 approved, uint256 maxPrice)
+        private
+        returns (MockSettlementRouter router)
+    {
+        router = _wireRouter();
+        usdc.mint(address(router), approved);
+        router.settle(usdc, address(market), approved, _purchaseForCall(id, who, maxPrice));
     }
 
     function test_purchaseForPullsThePriceFromTheRouter() public {
-        address router = _wireRouter();
-        _approveAndSettle(LISTING, buyer, 100 * ONE, 100 * ONE);
+        MockSettlementRouter router = _approveAndSettle(LISTING, buyer, 100 * ONE, 100 * ONE);
 
         assertTrue(market.hasPurchased(LISTING, buyer), "buyer holds the receipt, not the router");
         assertEq(market.owed(seller), 80 * ONE);
         assertEq(market.owed(platform), 20 * ONE);
-        assertEq(usdc.balanceOf(router), 0, "the price was pulled");
+        assertEq(usdc.balanceOf(address(router)), 0, "the price was pulled");
         assertEq(market.unallocatedBalance(), 0, "pull consumed exactly the price");
     }
 
-    /// Approval beyond the price is not taken: the router keeps it for the refund.
-    function test_purchaseForPullsOnlyThePrice() public {
-        address router = _wireRouter();
-        _approveAndSettle(LISTING, buyer, 150 * ONE, 150 * ONE);
-
-        assertEq(usdc.balanceOf(router), 50 * ONE, "the excess stays with the router");
-        assertEq(usdc.balanceOf(address(market)), 100 * ONE);
-        assertEq(market.unallocatedBalance(), 0);
+    function test_purchaseForSettlesFreeListingWithNoPayment() public {
+        bytes32 free = keccak256("free");
+        vm.prank(seller);
+        market.registerListing(free, 0);
+        _approveAndSettle(free, buyer, 0, 0);
+        assertTrue(market.hasPurchased(free, buyer));
     }
 
-    /// Without an approval nothing is credited.
-    function test_revertsPurchaseForWithoutApproval() public {
-        address router = _wireRouter();
-        usdc.mint(router, 100 * ONE);
-        vm.prank(router);
+    /// A payment above the price reverts rather than approving funds the purchase ignores.
+    function test_revertsPurchaseForOverPayment() public {
+        MockSettlementRouter router = _wireRouter();
+        usdc.mint(address(router), 150 * ONE);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketplacePayments.DeliveryMismatch.selector, 100 * ONE, 150 * ONE
+            )
+        );
+        router.settle(usdc, address(market), 150 * ONE, _purchaseForCall(LISTING, buyer, 150 * ONE));
+        assertFalse(market.hasPurchased(LISTING, buyer));
+    }
+
+    /// Without a payment from this call nothing is credited.
+    function test_revertsPurchaseForWithoutPayment() public {
+        MockSettlementRouter router = _wireRouter();
+        vm.expectRevert(
+            abi.encodeWithSelector(MarketplacePayments.DeliveryMismatch.selector, 100 * ONE, 0)
+        );
+        router.settle(usdc, address(market), 0, _purchaseForCall(LISTING, buyer, 100 * ONE));
+    }
+
+    /// Audit PoC: tokens already sitting here (a stray transfer) must not fund a
+    /// zero-value purchase by another agent, and the router's own balance cannot either.
+    function test_zeroValuePurchaseCannotSpendStrayFunds() public {
+        MockSettlementRouter router = _wireRouter();
+        usdc.mint(address(market), 100 * ONE);
+        usdc.mint(address(router), 100 * ONE); // router balance with no payment reported
+
+        vm.expectRevert(
+            abi.encodeWithSelector(MarketplacePayments.DeliveryMismatch.selector, 100 * ONE, 0)
+        );
+        router.settleReporting(
+            address(market), address(market), 0, _purchaseForCall(LISTING, other, type(uint256).max)
+        );
+        assertFalse(market.hasPurchased(LISTING, other));
+        assertEq(market.unallocatedBalance(), 100 * ONE, "still recoverable by sweep");
+    }
+
+    /// A payment the router made to some other target is not a payment to this contract.
+    function test_revertsWhenSettlementWasForAnotherTarget() public {
+        MockSettlementRouter router = _wireRouter();
+        usdc.mint(address(router), 100 * ONE);
+        vm.expectRevert(
+            abi.encodeWithSelector(MarketplacePayments.DeliveryMismatch.selector, 100 * ONE, 0)
+        );
+        router.settleReporting(
+            address(market), other, 100 * ONE, _purchaseForCall(LISTING, buyer, 100 * ONE)
+        );
+    }
+
+    /// A router reporting a payment it never approved cannot leave debts unbacked: the
+    /// pull itself fails.
+    function test_revertsWhenReportedPaymentWasNotApproved() public {
+        MockSettlementRouter router = _wireRouter();
+        usdc.mint(address(router), 100 * ONE);
         vm.expectRevert();
-        market.purchaseFor(LISTING, buyer, 100 * ONE);
+        router.settleReporting(
+            address(market), address(market), 100 * ONE, _purchaseForCall(LISTING, buyer, 100 * ONE)
+        );
         assertFalse(market.hasPurchased(LISTING, buyer));
     }
 
@@ -387,7 +444,7 @@ contract MarketplacePaymentsTest is Test {
 
     /// A seller's accrued balance is never what pays for a router purchase.
     function test_purchaseForCannotConsumeAccruedSellerBalance() public {
-        address router = _wireRouter();
+        MockSettlementRouter router = _wireRouter();
 
         vm.prank(buyer);
         market.purchase(LISTING, 100 * ONE);
@@ -397,28 +454,26 @@ contract MarketplacePaymentsTest is Test {
         vm.prank(seller);
         market.registerListing(second, 100 * ONE);
 
-        // The router has no funds of its own: the held balance belongs to payees.
-        vm.prank(router);
-        vm.expectRevert();
-        market.purchaseFor(second, other, 100 * ONE);
+        // The router pays nothing: the held balance belongs to payees.
+        vm.expectRevert(
+            abi.encodeWithSelector(MarketplacePayments.DeliveryMismatch.selector, 100 * ONE, 0)
+        );
+        router.settle(usdc, address(market), 0, _purchaseForCall(second, other, 100 * ONE));
         assertEq(market.totalOwed(), 100 * ONE);
     }
 
     function test_purchaseForRespectsMaxPrice() public {
-        address router = _wireRouter();
+        MockSettlementRouter router = _wireRouter();
         vm.prank(seller);
         market.registerListing(LISTING, 500 * ONE);
 
-        usdc.mint(router, 500 * ONE);
-        vm.prank(router);
-        usdc.approve(address(market), 500 * ONE);
-        vm.prank(router);
+        usdc.mint(address(router), 500 * ONE);
         vm.expectRevert(
             abi.encodeWithSelector(
                 MarketplacePayments.PriceExceedsMax.selector, 500 * ONE, 100 * ONE
             )
         );
-        market.purchaseFor(LISTING, buyer, 100 * ONE);
+        router.settle(usdc, address(market), 500 * ONE, _purchaseForCall(LISTING, buyer, 100 * ONE));
     }
 
     function test_sweepRecoversStrayTransfersOnly() public {

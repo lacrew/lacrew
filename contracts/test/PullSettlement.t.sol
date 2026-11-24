@@ -226,8 +226,8 @@ contract PullSettlementTest is Test {
         assertEq(treasury.allowanceBalance(worker), 100 * ONE);
     }
 
-    /// End to end: the marketplace pulls the price and the agent keeps any headroom.
-    function test_marketplacePurchasePullsOnlyThePrice() public {
+    /// End to end: the marketplace pulls exactly the price the intent paid.
+    function test_marketplacePurchasePullsThePrice() public {
         MarketplacePayments market =
             new MarketplacePayments(address(usdc), makeAddr("platform"), address(this), 2000);
         market.setSettlementRouter(address(router));
@@ -239,15 +239,44 @@ contract PullSettlementTest is Test {
         router.propose(
             worker,
             address(market),
-            50 * ONE,
-            abi.encodeCall(MarketplacePayments.purchaseFor, (listing, worker, 50 * ONE))
+            30 * ONE,
+            abi.encodeCall(MarketplacePayments.purchaseFor, (listing, worker, 30 * ONE))
         );
 
         assertTrue(market.hasPurchased(listing, worker));
         assertEq(usdc.balanceOf(address(market)), 30 * ONE);
         assertEq(market.unallocatedBalance(), 0);
-        assertEq(treasury.allowanceBalance(worker), 70 * ONE, "headroom above the price returns");
+        assertEq(treasury.allowanceBalance(worker), 70 * ONE);
         assertEq(budget.spentOf(worker), 30 * ONE);
+        _assertNoResidue(address(market));
+    }
+
+    /// A payment above the price reverts the whole action instead of settling and refunding
+    /// the headroom: the marketplace settles only from the exact payment of its own call.
+    function test_marketplacePurchaseRevertsWhenPaymentExceedsThePrice() public {
+        MarketplacePayments market =
+            new MarketplacePayments(address(usdc), makeAddr("platform"), address(this), 2000);
+        market.setSettlementRouter(address(router));
+        whitelist.setAllowed(address(market), true);
+        bytes32 listing = keccak256("listing");
+        vm.prank(vendor);
+        market.registerListing(listing, 30 * ONE);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketplacePayments.DeliveryMismatch.selector, 30 * ONE, 50 * ONE
+            )
+        );
+        router.propose(
+            worker,
+            address(market),
+            50 * ONE,
+            abi.encodeCall(MarketplacePayments.purchaseFor, (listing, worker, 50 * ONE))
+        );
+
+        assertFalse(market.hasPurchased(listing, worker));
+        assertEq(treasury.allowanceBalance(worker), 100 * ONE, "nothing was spent");
+        assertEq(budget.spentOf(worker), 0);
         _assertNoResidue(address(market));
     }
 }

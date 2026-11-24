@@ -1115,6 +1115,24 @@ export const escalationRouterAbi = [
   },
   {
     "type": "function",
+    "name": "currentSettlement",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "paid",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "deployer",
     "inputs": [],
     "outputs": [
@@ -7011,6 +7029,22 @@ export const marketplacePaymentsAbi = [
         "name": "buyer",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "DeliveryMismatch",
+    "inputs": [
+      {
+        "name": "price",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "delivered",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
