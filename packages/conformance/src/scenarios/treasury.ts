@@ -57,23 +57,23 @@ export const treasuryScenarios: Scenario[] = [
       b.call("root", "@streamer", "setGrant", ["worker", 10n * USDC]);
       b.reverts("EpochNotReady", "root", "@streamer", "runNextEpoch");
       b.expect({ epoch: 0 });
-      b.warp(500);
+      b.warp(1_250);
       b.call("root", "@streamer", "runNextEpoch");
       b.expect({ epoch: 1, allowance: { worker: 10n * USDC } });
       // The next epoch unlocks a full period after the last, however fast it is asked for.
       b.reverts("EpochNotReady", "root", "@streamer", "runNextEpoch");
-      b.warp(100);
+      b.warp(1_000);
       b.call("root", "@streamer", "runNextEpoch");
       b.expect({ epoch: 2, allowance: { worker: 20n * USDC } });
       // Time passing does not run epochs by itself: a backlog is drained one call at a time.
-      b.warp(300);
-      b.call("root", "@streamer", "runNextEpoch");
+      b.warp(2_000);
       b.call("root", "@streamer", "runNextEpoch");
       b.call("root", "@streamer", "runNextEpoch");
       b.reverts("EpochNotReady", "root", "@streamer", "runNextEpoch");
-      b.expect({ epoch: 5, allowance: { worker: 50n * USDC } });
+      b.expect({ epoch: 4, allowance: { worker: 40n * USDC } });
     },
-    { epoch: { startOffset: 1_500n, duration: 100n } },
+    // Periods far wider than the few seconds the deployment itself takes on a chain.
+    { epoch: { startOffset: 2_000n, duration: 1_000n } },
   ),
 
   scenario("the grant schedule and the streamer's own authority", (b) => {
