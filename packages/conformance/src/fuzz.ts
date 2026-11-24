@@ -318,7 +318,7 @@ export class Fuzzer {
           this.pick([0n, 20n * USDC, 200n * USDC]),
         ]);
       case 4:
-        return this.call(this.sender("root"), "@streamer", "runEpoch", [BigInt(this.int(1, 12))]);
+        return this.call(this.sender("root"), "@streamer", "runNextEpoch", []);
       default:
         return this.call(this.sender("root"), "@streamer", "runNextEpoch", []);
     }

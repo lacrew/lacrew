@@ -7,8 +7,16 @@ import {Treasury} from "./Treasury.sol";
 /// @notice Payroll-style job: streams fixed grants to configured nodes once per epoch.
 /// @dev Authorized as Treasury.streamer. Operator runs epochs; grant schedule can also
 ///      be mutated by `governor` (GovernanceModule) for constitutional budget changes.
+///      Epochs are strictly sequential and time-gated: epoch n unlocks at
+///      `epochStart + (n - 1) * epochDuration`, so a compromised operator key can
+///      stream at most one payroll per period (and at most the elapsed backlog),
+///      never N payrolls in a single transaction.
 contract EpochStreamer {
     Treasury public immutable treasury;
+    /// @notice Timestamp at which epoch 1 unlocks.
+    uint64 public immutable epochStart;
+    /// @notice Seconds between consecutive epoch unlocks (non-zero).
+    uint64 public immutable epochDuration;
     address public operator;
     /// @notice When non-zero, may call `setGrant` (typically GovernanceModule).
     address public governor;
@@ -31,6 +39,8 @@ contract EpochStreamer {
     error NotOperator(address caller);
     error NotAuthorized(address caller);
     error EpochAlreadyRun(uint64 epoch);
+    error EpochNotReady(uint64 epoch, uint256 unlockTime);
+    error ZeroDuration();
     error ZeroAddress();
     error EmptySchedule();
     error GovernorAlreadySet();
@@ -42,10 +52,13 @@ contract EpochStreamer {
         _;
     }
 
-    constructor(address treasury_, address operator_) {
+    constructor(address treasury_, address operator_, uint64 epochStart_, uint64 epochDuration_) {
         if (treasury_ == address(0) || operator_ == address(0)) revert ZeroAddress();
+        if (epochDuration_ == 0) revert ZeroDuration();
         treasury = Treasury(treasury_);
         operator = operator_;
+        epochStart = epochStart_;
+        epochDuration = epochDuration_;
     }
 
     function setOperator(address operator_) external onlyOperator {
@@ -102,17 +115,20 @@ contract EpochStreamer {
         return _recipients;
     }
 
-    /// @notice Advance `currentEpoch` and stream all grants. Idempotent per epoch id.
-    function runNextEpoch() external onlyOperator returns (uint64 epoch) {
-        epoch = currentEpoch + 1;
-        _runEpoch(epoch);
-        currentEpoch = epoch;
+    /// @notice Timestamp at which `epoch` (1-based) unlocks.
+    function epochUnlockTime(uint64 epoch) public view returns (uint256) {
+        return uint256(epochStart) + (uint256(epoch) - 1) * uint256(epochDuration);
     }
 
-    /// @notice Stream grants for an explicit epoch id (must not have run before).
-    function runEpoch(uint64 epoch) external onlyOperator {
+    /// @notice Advance `currentEpoch` by exactly one and stream all grants. Reverts
+    ///         until that epoch's unlock time; elapsed epochs may be back-filled
+    ///         one call at a time, never ahead of the clock.
+    function runNextEpoch() external onlyOperator returns (uint64 epoch) {
+        epoch = currentEpoch + 1;
+        uint256 unlock = epochUnlockTime(epoch);
+        if (block.timestamp < unlock) revert EpochNotReady(epoch, unlock);
         _runEpoch(epoch);
-        if (epoch > currentEpoch) currentEpoch = epoch;
+        currentEpoch = epoch;
     }
 
     function _runEpoch(uint64 epoch) private {

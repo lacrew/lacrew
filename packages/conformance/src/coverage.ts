@@ -70,6 +70,10 @@ export const NOT_SIMULATED: Record<string, string> = {
     "High-tier governed payout of liquid funds out of the treasury. Not modelled by the sandbox kernel. TODO: mirror it in the kernel.",
   "GovernanceModule.WithdrawNotHighTier":
     "Raised only when a withdraw proposal is below High tier; the sandbox does not simulate Treasury.withdraw.",
+  "EpochStreamer.EpochAlreadyRun":
+    "Defence in depth: epochs only run through runNextEpoch, which always advances to an epoch that has not run, so no call can raise it.",
+  "EpochStreamer.ZeroDuration":
+    "Raised only by the constructor, and conformance deploys the streamer through deployOrg with a non-zero duration.",
   "Treasury.SafeERC20FailedOperation":
     "SafeERC20 guard for tokens that return false. MockUSDC reverts with its own error instead.",
   "Treasury.TransferAmountMismatch":

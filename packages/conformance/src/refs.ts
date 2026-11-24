@@ -98,6 +98,7 @@ export interface GenesisOptions {
   rateLimit?: { maxActions: bigint; windowSeconds: bigint };
   timeWindow?: { startSecondOfDay: bigint; endSecondOfDay: bigint };
   bindGovernor?: boolean;
+  epoch?: { startOffset?: bigint; duration?: bigint };
 }
 
 /**

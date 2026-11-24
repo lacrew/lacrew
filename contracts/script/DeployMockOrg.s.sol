@@ -25,6 +25,9 @@ import {IPolicyModule} from "../src/interfaces/IPolicyModule.sol";
 contract DeployMockOrg is Script {
     uint256 internal constant USDC = 1e6;
     uint256 internal constant WETH = 1e18;
+    /// @dev Dev/demo chains only: 1s cadence so local loops can run epochs back to back.
+    ///      Production deploys must pass a real period (e.g. 1 days).
+    uint64 internal constant MOCK_EPOCH_DURATION = 1;
     /// @dev 20% platform take rate on marketplace sales.
     uint16 internal constant PLATFORM_FEE_BPS = 2000;
     /// @dev Anvil default account #1 — known key in lacrew/.env.example (demo only).
@@ -138,7 +141,7 @@ contract DeployMockOrg is Script {
         d.treasury.deposit(fundAmount);
         d.treasury.streamAllowance(worker, 200 * USDC, 1);
 
-        d.epochStreamer = new EpochStreamer(address(d.treasury), humanRoot);
+        d.epochStreamer = new EpochStreamer(address(d.treasury), humanRoot, uint64(block.timestamp), MOCK_EPOCH_DURATION);
         d.epochStreamer.setGrant(worker, 200 * USDC);
         d.treasury.setStreamer(address(d.epochStreamer));
 
@@ -258,7 +261,7 @@ contract DeployMockOrg is Script {
         weth.approve(address(treasury), fundAmount);
         treasury.deposit(fundAmount);
 
-        EpochStreamer streamer = new EpochStreamer(address(treasury), humanRoot);
+        EpochStreamer streamer = new EpochStreamer(address(treasury), humanRoot, uint64(block.timestamp), MOCK_EPOCH_DURATION);
         streamer.setGrant(d.worker, 1 * WETH);
         treasury.setStreamer(address(streamer));
 

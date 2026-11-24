@@ -182,6 +182,12 @@ export interface GenesisParams {
    * configure the org directly before binding governance.
    */
   bindGovernor?: boolean;
+  /**
+   * `EpochStreamer` schedule: `startOffset` is epoch 1's unlock relative to the
+   * deployment timestamp (default -60), `duration` the seconds between unlocks
+   * (default 1).
+   */
+  epoch?: { startOffset?: bigint; duration?: bigint };
   /** `block.timestamp` of the deployment. */
   at: Clock | bigint;
   env?: KernelEnv;
@@ -272,7 +278,16 @@ export function genesis(params: GenesisParams): World {
   run(deployer, (ctx) => escalationRouter.setRateRecorder(ctx, a().rateLimitPolicy));
   run(deployer, (ctx) => policies.setRecorder(ctx, a().rateLimitPolicy, a().escalationRouter));
 
-  run(deployer, (ctx) => epochStreamer.deploy(ctx, allocateAddress(ctx), a().treasury, operator));
+  run(deployer, (ctx) =>
+    epochStreamer.deploy(
+      ctx,
+      allocateAddress(ctx),
+      a().treasury,
+      operator,
+      ctx.now + (params.epoch?.startOffset ?? -60n),
+      params.epoch?.duration ?? 1n,
+    ),
+  );
   run(deployer, (ctx) => treasury.setStreamer(ctx, a().epochStreamer));
 
   run(deployer, (ctx) => sessionRegistry.deploy(ctx, allocateAddress(ctx), root, a().orgRegistry));

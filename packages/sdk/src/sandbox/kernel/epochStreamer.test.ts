@@ -55,34 +55,39 @@ describe("kernel EpochStreamer", () => {
     );
   });
 
-  it("refuses an epoch id that already ran, and an empty schedule", () => {
+  it("refuses an empty schedule", () => {
     const sim = funded();
     sim.reverts("EmptySchedule", ROOT, (ctx) => epochStreamer.runNextEpoch(ctx));
-    sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, WORKER, 1n));
-    sim.send(ROOT, (ctx) => epochStreamer.runNextEpoch(ctx));
-    const err = sim.reverts("EpochAlreadyRun", ROOT, (ctx) => epochStreamer.runEpoch(ctx, 1n));
-    assert.deepEqual(err.args, { epoch: 1n });
   });
 
-  it("an explicit epoch id moves the counter forward, never back", () => {
-    const sim = funded();
+  it("holds an epoch until its unlock time, and drains a backlog one epoch per call", () => {
+    const sim = bootstrapOrg({ epoch: { startOffset: 100n, duration: 10n } });
+    fund(sim, 1_000n * USDC);
     sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, WORKER, 1n));
-    sim.send(ROOT, (ctx) => epochStreamer.runEpoch(ctx, 5n));
-    assert.equal(sim.world.epochStreamer.currentEpoch, 5n);
-    sim.send(ROOT, (ctx) => epochStreamer.runEpoch(ctx, 3n));
-    assert.equal(sim.world.epochStreamer.currentEpoch, 5n);
-    assert.equal(
-      sim.send(ROOT, (ctx) => epochStreamer.runNextEpoch(ctx)),
-      6n,
-    );
-    assert.equal(allowanceOf(sim, WORKER), 3n);
+
+    const early = sim.reverts("EpochNotReady", ROOT, (ctx) => epochStreamer.runNextEpoch(ctx));
+    assert.deepEqual(early.args, { epoch: 1n, unlockTime: sim.now + 100n });
+
+    sim.warp(125n); // epochs 1, 2 and 3 have unlocked
+    for (const n of [1n, 2n, 3n]) {
+      assert.equal(
+        sim.send(ROOT, (ctx) => epochStreamer.runNextEpoch(ctx)),
+        n,
+      );
+    }
+    const err = sim.reverts("EpochNotReady", ROOT, (ctx) => epochStreamer.runNextEpoch(ctx));
+    assert.equal(err.args.epoch, 4n);
+    assert.equal(sim.world.epochStreamer.currentEpoch, 3n);
+  });
+
+  it("refuses a zero epoch duration at deployment", () => {
+    assert.throws(() => bootstrapOrg({ epoch: { duration: 0n } }), /ZeroDuration/);
   });
 
   it("only the operator runs epochs", () => {
     const sim = funded();
     sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, WORKER, 1n));
     sim.reverts("NotOperator", STRANGER, (ctx) => epochStreamer.runNextEpoch(ctx));
-    sim.reverts("NotOperator", STRANGER, (ctx) => epochStreamer.runEpoch(ctx, 9n));
   });
 
   it("reverts the whole epoch when the treasury cannot cover one grant", () => {
