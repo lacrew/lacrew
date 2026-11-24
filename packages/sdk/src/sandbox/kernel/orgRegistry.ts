@@ -82,6 +82,60 @@ export function setGovernor(ctx: Ctx, governor_: Address): void {
   state.governor = governor;
 }
 
+/**
+ * Hand the root node to `newRoot`: a fresh address, or a `HumanRoot` child of
+ * the current root. The old root's node is removed and its reports move under
+ * `newRoot`. Governor-only once one is bound.
+ */
+export function rotateRoot(ctx: Ctx, newRoot_: Address): void {
+  const state = ctx.world.orgRegistry;
+  const newRoot = addr(newRoot_);
+  const registry = ctx.world.addresses.orgRegistry;
+  authorize(ctx);
+  if (newRoot === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  const oldRoot = state.root;
+  const promoted = nodeAt(state, newRoot);
+  if (promoted.account !== ZERO_ADDRESS) {
+    if (promoted.kind !== NodeKind.HumanRoot || promoted.parent !== oldRoot) {
+      throw new SimRevert("InvalidRoot", { account: newRoot });
+    }
+    removeFromParent(state, oldRoot, newRoot);
+    state.nodes[newRoot] = { ...promoted, parent: ZERO_ADDRESS, active: true };
+    emit(ctx, registry, CONTRACT, "NodeReparented", {
+      account: newRoot,
+      oldParent: oldRoot,
+      newParent: ZERO_ADDRESS,
+    });
+  } else {
+    state.nodes[newRoot] = {
+      account: newRoot,
+      kind: NodeKind.HumanRoot,
+      parent: ZERO_ADDRESS,
+      active: true,
+    };
+    emit(ctx, registry, CONTRACT, "NodeAdded", {
+      account: newRoot,
+      kind: NodeKind.HumanRoot,
+      parent: ZERO_ADDRESS,
+    });
+  }
+
+  for (const child of state.children[oldRoot] ?? []) {
+    state.nodes[child] = { ...nodeAt(state, child), parent: newRoot };
+    childrenAt(state, newRoot).push(child);
+    emit(ctx, registry, CONTRACT, "NodeReparented", {
+      account: child,
+      oldParent: oldRoot,
+      newParent: newRoot,
+    });
+  }
+  delete state.children[oldRoot];
+  delete state.nodes[oldRoot];
+  state.root = newRoot;
+  emit(ctx, registry, CONTRACT, "NodeRemoved", { account: oldRoot, formerParent: ZERO_ADDRESS });
+  emit(ctx, registry, CONTRACT, "RootRotated", { oldRoot, newRoot });
+}
+
 export function addNode(ctx: Ctx, account_: Address, kind: number, parent_: Address): void {
   const state = ctx.world.orgRegistry;
   const account = addr(account_);

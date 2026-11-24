@@ -263,6 +263,7 @@ export async function deployOrg(options: DeployOrgOptions): Promise<DeployedOrg>
 
   if (options.bindGovernor ?? true) {
     await send(orgRegistry, orgRegistryAbi, "setGovernor", [governanceModule]);
+    await send(sessionRegistry, sessionRegistryAbi, "setGovernor", [governanceModule]);
     await send(treasury, treasuryAbi, "setGovernor", [governanceModule]);
     await send(escalationRouter, escalationRouterAbi, "setGovernor", [governanceModule]);
     await send(epochStreamer, epochStreamerAbi, "setGovernor", [governanceModule]);

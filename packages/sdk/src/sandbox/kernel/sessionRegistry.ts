@@ -41,6 +41,11 @@ export interface RateLimitState {
 
 export interface SessionRegistryState {
   humanRoot: Address;
+  /**
+   * When non-zero, may set the issuer, revoke sessions and rotate the root.
+   * Optional because a world saved before it existed has none.
+   */
+  governor?: Address;
   issuer: Address;
   maxIssuerTtl: bigint;
   nextSessionId: bigint;
@@ -60,6 +65,7 @@ export interface SessionRegistryState {
 export function blankSessionRegistry(): SessionRegistryState {
   return {
     humanRoot: ZERO_ADDRESS,
+    governor: ZERO_ADDRESS,
     issuer: ZERO_ADDRESS,
     maxIssuerTtl: DEFAULT_MAX_ISSUER_TTL,
     nextSessionId: 1n,
@@ -108,10 +114,37 @@ export function deploy(
   ctx.world.sessionRegistry = { ...blankSessionRegistry(), humanRoot, issuer: humanRoot };
 }
 
+/** Bind governance: the root until bound, then only the current governor. */
+export function setGovernor(ctx: Ctx, governor_: Address): void {
+  const state = ctx.world.sessionRegistry;
+  const governor = addr(governor_);
+  if (governor === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  onlyGovernorOrUnboundRoot(ctx);
+  state.governor = governor;
+  emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "GovernorUpdated", { governor });
+}
+
+/** Hand the root key to `newRoot`; an issuer still set to the old root follows it. */
+export function rotateRoot(ctx: Ctx, newRoot_: Address): void {
+  const state = ctx.world.sessionRegistry;
+  const newRoot = addr(newRoot_);
+  onlyGovernorOrUnboundRoot(ctx);
+  if (newRoot === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  const oldRoot = state.humanRoot;
+  state.humanRoot = newRoot;
+  emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "RootRotated", { oldRoot, newRoot });
+  if (state.issuer === oldRoot) {
+    state.issuer = newRoot;
+    emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "IssuerUpdated", { issuer: newRoot });
+  }
+}
+
 export function setIssuer(ctx: Ctx, issuer_: Address): void {
   const state = ctx.world.sessionRegistry;
   const issuer = addr(issuer_);
-  if (ctx.sender !== state.humanRoot) throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  if (ctx.sender !== state.humanRoot && !isGovernor(ctx)) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
   if (issuer === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
   state.issuer = issuer;
   emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "IssuerUpdated", { issuer });
@@ -311,11 +344,14 @@ function issueInternal(
 }
 
 export function revoke(ctx: Ctx, sessionId: bigint): void {
-  onlyRootOrIssuer(ctx);
   const state = ctx.world.sessionRegistry;
+  const rootOrGovernor = ctx.sender === state.humanRoot || isGovernor(ctx);
+  if (!rootOrGovernor && ctx.sender !== state.issuer) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
   const s = sessionAt(state, sessionId);
   if (!s.exists) throw new SimRevert("SessionNotFound", { sessionId });
-  if (ctx.sender !== state.humanRoot && state.issuedBy[sessionId.toString()] !== ctx.sender) {
+  if (!rootOrGovernor && state.issuedBy[sessionId.toString()] !== ctx.sender) {
     throw new SimRevert("NotAuthorized", { caller: ctx.sender });
   }
   if (s.revoked) throw new SimRevert("AlreadyRevoked", { sessionId });
@@ -439,6 +475,21 @@ function requireAgentNode(ctx: Ctx, agent: Address): void {
   }
   if (!node.active || node.kind === orgRegistry.NodeKind.HumanRoot) {
     throw new SimRevert("IssuerAgentNotEligible", { agent });
+  }
+}
+
+function isGovernor(ctx: Ctx): boolean {
+  const governor = ctx.world.sessionRegistry.governor ?? ZERO_ADDRESS;
+  return governor !== ZERO_ADDRESS && ctx.sender === governor;
+}
+
+function onlyGovernorOrUnboundRoot(ctx: Ctx): void {
+  const state = ctx.world.sessionRegistry;
+  const governor = state.governor ?? ZERO_ADDRESS;
+  if (governor !== ZERO_ADDRESS) {
+    if (ctx.sender !== governor) throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  } else if (ctx.sender !== state.humanRoot) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
   }
 }
 
