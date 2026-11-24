@@ -383,9 +383,11 @@ describe("sandbox client: who is calling", () => {
     assert.equal(stranger.account, STRANGER);
     await pass(client, client.proposeHire({ label: "x", account: WORKER }));
     assert.equal((await stranger.getOrgTree()).length, 2);
-    // Anyone may propose; only a seat may vote.
-    const { proposalId } = await stranger.proposeFire({ account: WORKER });
-    assert.equal((await client.getProposal(proposalId)).proposer, STRANGER);
+    // Only a seat may propose or vote.
+    await assert.rejects(stranger.proposeFire({ account: WORKER }), revertsWith("NoVotingPower"));
+    const { proposalId } = await client.proposeFire({ account: WORKER });
+    assert.equal((await client.getProposal(proposalId)).proposer, ROOT);
+    assert.equal((await client.getProposal(proposalId)).tier, "high");
     await assert.rejects(stranger.voteGovernance(proposalId, true), revertsWith("NoVotingPower"));
   });
 });
@@ -560,7 +562,7 @@ describe("sandbox client: writes are named by simTxId", () => {
       await client.issueSession({ agent: MANAGER, key: KEY, expiresAtSec: T0 + 60, scopeMask: 1n }),
     );
     results.push(await client.revokeSession("1"));
-    results.push(await client.proposeGovernance({ tier: "low", target: TARGET, data: "0x" }));
+    results.push(await client.proposeGovernance({ tier: "high", target: TARGET, data: "0x" }));
     results.push(await client.vetoGovernance("2"));
     for (const [i, result] of results.entries()) {
       assert.equal("txHash" in result, false);
@@ -717,14 +719,14 @@ describe("sandbox client: calls by address", () => {
     });
 
     // And as the action of an executed proposal.
-    await pass(client, client.proposeGovernance({ tier: "low", target: STRANGER, data: "0x01" }));
+    await pass(client, client.proposeGovernance({ tier: "high", target: STRANGER, data: "0x01" }));
     assert.ok(commits.at(-1)!.events.some((e) => e.name === "ExternalCall"));
   });
 
   it("a proposal whose calldata no contract function answers fails to execute", async () => {
     const { client } = sandbox();
     const { proposalId } = await client.proposeGovernance({
-      tier: "low",
+      tier: "high",
       target: client.addresses.orgRegistry,
       data: "0xdeadbeef",
     });

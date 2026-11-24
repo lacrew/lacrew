@@ -67,6 +67,7 @@ import {
   type ProtocolEvent,
   type SessionKey,
   type Verdict,
+  defaultHireTier,
 } from "@lacrew/core";
 import { resolveWorkspacePath } from "@lacrew/core/node";
 import type { ProtocolClient, SessionKeyLimits } from "./protocolClient.js";
@@ -2094,7 +2095,8 @@ export class OnchainLacrewClient implements ProtocolClient {
   }
 
   /**
-   * Propose hiring a node via OrgRegistry.addNode (low tier by default).
+   * Propose hiring a node via OrgRegistry.addNode. Low tier by default for an agent
+   * seat; a `human_root` node is always high tier, as the module requires.
    * Generates a deterministic demo address from `label` when `account` omitted.
    */
   async proposeHire(input: {
@@ -2119,14 +2121,17 @@ export class OnchainLacrewClient implements ProtocolClient {
       args: [account, NODE_KIND_MAP[kind], parent],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? defaultHireTier(kind),
       target: this.addresses.orgRegistry,
       data,
     });
     return { ...result, account };
   }
 
-  /** Propose firing a node via OrgRegistry.removeNode (children rewire to parent). */
+  /**
+   * Propose firing a node via OrgRegistry.removeNode (children rewire to parent).
+   * High tier: the module carries no org change but an agent hire on the low tier.
+   */
   async proposeFire(input: {
     account: `0x${string}`;
     tier?: GovernanceTier;
@@ -2137,7 +2142,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       args: [input.account],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? "high",
       target: this.addresses.orgRegistry,
       data,
     });
@@ -2177,7 +2182,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       args: [input.account, input.active],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? "high",
       target: this.addresses.orgRegistry,
       data,
     });
@@ -2196,7 +2201,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       args: [input.account, input.newParent],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? "high",
       target: this.addresses.orgRegistry,
       data,
     });

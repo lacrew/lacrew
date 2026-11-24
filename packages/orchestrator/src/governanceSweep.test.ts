@@ -63,6 +63,31 @@ describe("decideAutoExecute", () => {
     });
   });
 
+  it("holds a low-tier proposal through its delay unless every human backs it", () => {
+    const p = proposal({ eta: NOW + 600 });
+    assert.deepEqual(decideAutoExecute(p, CONFIG, NOW), {
+      execute: false,
+      reason: "timelock_pending",
+    });
+    assert.deepEqual(decideAutoExecute({ ...p, yesHumanVotes: 2 }, CONFIG, NOW), {
+      execute: true,
+      via: "unanimity",
+    });
+  });
+
+  it("skips a proposal that does not out-vote its noes while voting is open", () => {
+    // Two agents for, the root against: quorum is met but the tally is a tie.
+    assert.deepEqual(decideAutoExecute(proposal({ yesVotes: 2, noVotes: 2 }), CONFIG, NOW), {
+      execute: false,
+      reason: "outvoted",
+    });
+    const high = proposal({ tier: "high", yesHumanVotes: 1, noHumanVotes: 1, eta: NOW - 1 });
+    assert.deepEqual(decideAutoExecute(high, CONFIG, NOW), {
+      execute: false,
+      reason: "outvoted",
+    });
+  });
+
   it("still executes past the deadline when the yeses hold", () => {
     const p = proposal({ deadline: NOW - 10, yesVotes: 2, noVotes: 1 });
     assert.deepEqual(decideAutoExecute(p, CONFIG, NOW), { execute: true, via: "quorum" });
@@ -139,11 +164,11 @@ describe("decideAutoExecute", () => {
     });
   });
 
-  it("ignores the human no tally until the deadline has passed", () => {
+  it("counts the human no tally before the deadline too", () => {
     const p = proposal({ tier: "high", eta: NOW - 1, yesHumanVotes: 1, noHumanVotes: 2 });
     assert.deepEqual(decideAutoExecute(p, CONFIG, NOW), {
-      execute: true,
-      via: "timelock_elapsed",
+      execute: false,
+      reason: "outvoted",
     });
   });
 

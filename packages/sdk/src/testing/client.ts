@@ -20,6 +20,7 @@ import {
   type SessionKey,
   type TreasuryBalance,
   type Verdict,
+  defaultHireTier,
 } from "@lacrew/core";
 import type { ResolveResult } from "../types.js";
 import {
@@ -484,7 +485,7 @@ export class LacrewClient {
     const hex = Buffer.from(input.label, "utf8").toString("hex").padEnd(40, "0").slice(0, 40);
     const account = input.account ?? (`0x${hex}` as `0x${string}`);
     const proposal = this.createMockProposal(
-      input.tier ?? "low",
+      input.tier ?? defaultHireTier(input.kind ?? "worker_agent"),
       account,
       { kind: "hire", account, nodeKind: input.kind ?? "worker_agent", parent, label: input.label },
       { account, label: input.label, action: "hire" },
@@ -498,7 +499,7 @@ export class LacrewClient {
   }): Promise<{ proposalId: string; account: `0x${string}` }> {
     this.requireMock("governance");
     const proposal = this.createMockProposal(
-      input.tier ?? "low",
+      input.tier ?? "high",
       input.account,
       { kind: "fire", account: input.account },
       { account: input.account, action: "fire" },
@@ -513,7 +514,7 @@ export class LacrewClient {
   }): Promise<{ proposalId: string; account: `0x${string}` }> {
     this.requireMock("governance");
     const proposal = this.createMockProposal(
-      input.tier ?? "low",
+      input.tier ?? "high",
       input.account,
       { kind: "setActive", account: input.account, active: input.active },
       { account: input.account, action: input.active ? "activate" : "deactivate" },
@@ -528,7 +529,7 @@ export class LacrewClient {
   }): Promise<{ proposalId: string; account: `0x${string}` }> {
     this.requireMock("governance");
     const proposal = this.createMockProposal(
-      input.tier ?? "low",
+      input.tier ?? "high",
       input.account,
       { kind: "reparent", account: input.account, newParent: input.newParent },
       { account: input.account, newParent: input.newParent, action: "reparent" },
