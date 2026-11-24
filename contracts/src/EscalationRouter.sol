@@ -8,6 +8,7 @@ import {IValueRecorder} from "./interfaces/IValueRecorder.sol";
 import {ITreasurySpender} from "./interfaces/ITreasurySpender.sol";
 import {SessionRegistry} from "./SessionRegistry.sol";
 import {SessionScopes} from "./SessionScopes.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title EscalationRouter
 /// @notice Creates pending intents when a policy returns ESCALATE; parents approve upward.
@@ -16,7 +17,7 @@ import {SessionScopes} from "./SessionScopes.sol";
 /// @dev On ALLOW (propose or final resolve), optionally spends allowance and calls `target`.
 ///      When `sessionRegistry` is set, `propose` must be signed by a valid session key for `agent`
 ///      (or by `agent` itself for future AA EOAs).
-contract EscalationRouter {
+contract EscalationRouter is ReentrancyGuard {
     struct Intent {
         address agent;
         address target;
@@ -186,6 +187,7 @@ contract EscalationRouter {
     /// @notice Propose an action; ALLOW executes spend+call, ESCALATE creates an intent, DENY reverts.
     function propose(address agent, address target, uint256 value, bytes calldata data)
         external
+        nonReentrant
         returns (uint256 intentId, Verdict verdict)
     {
         IOrgRegistry.Node memory agentNode = orgRegistry.getNode(agent);
@@ -249,7 +251,7 @@ contract EscalationRouter {
     ///        (`InactiveAgent`), at every step of the climb, so a deactivated or fired
     ///        agent's pending spend can never execute. Rejection stays open, which is
     ///        how such an intent is closed.
-    function resolve(uint256 intentId, bool approved) external {
+    function resolve(uint256 intentId, bool approved) external nonReentrant {
         Intent storage intent = intents[intentId];
         if (intent.agent == address(0)) revert IntentNotFound(intentId);
         if (intent.resolved) revert IntentAlreadyResolved(intentId);
@@ -312,11 +314,15 @@ contract EscalationRouter {
             _recordValue(agent, target, value);
         }
 
+        // Count the action before the external call (checks-effects-interactions):
+        // a target that calls back into the router must see this action already
+        // inside the RateLimitPolicy window.
+        _recordRate(agent);
+
         bool callOk = true;
         if (data.length > 0) {
             (callOk,) = target.call(data);
         }
-        _recordRate(agent);
         emit ActionExecuted(agent, target, value, callOk);
     }
 
