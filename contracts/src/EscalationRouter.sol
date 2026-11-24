@@ -39,6 +39,11 @@ contract EscalationRouter {
     /// @notice GovernanceModule (or the deployer while bootstrapping) for the setters below.
     address public governor;
 
+    /// @notice Emergency stop: while set, anything that would settle (`_finalizeAction`)
+    ///         reverts. Rejections and escalation up the tree stay open, so pending
+    ///         intents can still be closed.
+    bool public paused;
+
     uint256 public nextIntentId = 1;
     mapping(uint256 => Intent) public intents;
     /// @notice Optional per-node policy stack override (falls back to `policy`).
@@ -56,12 +61,7 @@ contract EscalationRouter {
     event IntentCreated(uint256 indexed intentId, address indexed agent, address awaitingApprover);
     event IntentEscalated(uint256 indexed intentId, address indexed from, address indexed to);
     event IntentResolved(uint256 indexed intentId, bool approved);
-    event ActionExecuted(
-        address indexed agent,
-        address indexed target,
-        uint256 value,
-        bool callOk
-    );
+    event ActionExecuted(address indexed agent, address indexed target, uint256 value, bool callOk);
     event TreasuryUpdated(address indexed treasury);
     event RateRecorderUpdated(address indexed rateRecorder);
     event SessionRegistryUpdated(address indexed sessionRegistry);
@@ -70,6 +70,8 @@ contract EscalationRouter {
     event ValueRecorderUpdated(address indexed valueRecorder);
     event NodeValueRecorderUpdated(address indexed node, address indexed valueRecorder);
     event GovernorUpdated(address indexed governor);
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
 
     error IntentNotFound(uint256 intentId);
     error IntentAlreadyResolved(uint256 intentId);
@@ -89,6 +91,9 @@ contract EscalationRouter {
     ///      call at one of those would lend it the router's own authority.
     error ProtectedTarget(address target);
     error ZeroAddress();
+    error EnforcedPause();
+    error AlreadyPaused();
+    error NotPaused();
 
     constructor(address orgRegistry_, address policy_) {
         if (orgRegistry_ == address(0)) revert ZeroAddress();
@@ -103,6 +108,25 @@ contract EscalationRouter {
         _onlyGovernorOrBootstrap();
         governor = governor_;
         emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Emergency stop. Any active human seat in the org tree, or the current
+    ///         governance authority, may pause; only that authority (the governor once
+    ///         bound, the deployer until then) can unpause, so lifting it goes through
+    ///         governance while stopping it needs no vote.
+    function pause() external {
+        if (paused) revert AlreadyPaused();
+        if (!_isHumanSeat(msg.sender) && msg.sender != _authority()) revert NotAuthorized(msg.sender);
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Lift the emergency stop.
+    function unpause() external {
+        _onlyGovernorOrBootstrap();
+        if (!paused) revert NotPaused();
+        paused = false;
+        emit Unpaused(msg.sender);
     }
 
     /// @notice Wire treasury for ALLOW execution.
@@ -160,12 +184,10 @@ contract EscalationRouter {
     }
 
     /// @notice Propose an action; ALLOW executes spend+call, ESCALATE creates an intent, DENY reverts.
-    function propose(
-        address agent,
-        address target,
-        uint256 value,
-        bytes calldata data
-    ) external returns (uint256 intentId, Verdict verdict) {
+    function propose(address agent, address target, uint256 value, bytes calldata data)
+        external
+        returns (uint256 intentId, Verdict verdict)
+    {
         IOrgRegistry.Node memory agentNode = orgRegistry.getNode(agent);
         if (!agentNode.active) revert InactiveAgent(agent);
         _requireUnprotectedTarget(agent, target);
@@ -247,8 +269,7 @@ contract EscalationRouter {
 
         if (!_isActiveNode(intent.agent)) revert InactiveAgent(intent.agent);
 
-        Verdict verdict =
-            _policyFor(msg.sender).check(msg.sender, intent.target, intent.value, intent.data);
+        Verdict verdict = _policyFor(msg.sender).check(msg.sender, intent.target, intent.value, intent.data);
 
         if (verdict == Verdict.DENY) {
             intent.resolved = true;
@@ -284,12 +305,8 @@ contract EscalationRouter {
         emit IntentEscalated(intentId, previous, nextApprover);
     }
 
-    function _finalizeAction(
-        address agent,
-        address target,
-        uint256 value,
-        bytes memory data
-    ) private {
+    function _finalizeAction(address agent, address target, uint256 value, bytes memory data) private {
+        if (paused) revert EnforcedPause();
         if (value > 0) {
             if (address(treasury) != address(0)) treasury.spendAllowance(agent, value, target);
             _recordValue(agent, target, value);
@@ -297,7 +314,7 @@ contract EscalationRouter {
 
         bool callOk = true;
         if (data.length > 0) {
-            (callOk, ) = target.call(data);
+            (callOk,) = target.call(data);
         }
         _recordRate(agent);
         emit ActionExecuted(agent, target, value, callOk);
@@ -333,8 +350,7 @@ contract EscalationRouter {
         bool valid;
         uint256 maxValue;
         address allowedTarget;
-        (valid, maxValue, allowedTarget, scopeMask) =
-            sessionRegistry.keyLimits(agent, msg.sender);
+        (valid, maxValue, allowedTarget, scopeMask) = sessionRegistry.keyLimits(agent, msg.sender);
         if (!valid) revert InvalidSession(agent, msg.sender);
         if (scopeMask & SessionScopes.PROPOSE_INTENT == 0) {
             revert SessionScopeDenied(agent, SessionScopes.PROPOSE_INTENT, scopeMask);
@@ -368,10 +384,9 @@ contract EscalationRouter {
         // Unwired slots are zero; a zero target must not match them.
         if (target == address(0)) return;
         if (
-            target == address(this) || target == address(treasury)
-                || target == address(sessionRegistry) || target == address(rateRecorder)
-                || target == address(rateRecorderOf[agent]) || target == address(valueRecorder)
-                || target == address(valueRecorderOf[agent])
+            target == address(this) || target == address(treasury) || target == address(sessionRegistry)
+                || target == address(rateRecorder) || target == address(rateRecorderOf[agent])
+                || target == address(valueRecorder) || target == address(valueRecorderOf[agent])
         ) {
             revert ProtectedTarget(target);
         }
@@ -394,8 +409,19 @@ contract EscalationRouter {
     }
 
     /// @dev Governor once bound; the deployer until then.
+    function _authority() private view returns (address) {
+        return governor == address(0) ? deployer : governor;
+    }
+
+    function _isHumanSeat(address account) private view returns (bool) {
+        try orgRegistry.getNode(account) returns (IOrgRegistry.Node memory node) {
+            return node.active && node.kind == IOrgRegistry.NodeKind.HumanRoot;
+        } catch {
+            return false;
+        }
+    }
+
     function _onlyGovernorOrBootstrap() private view {
-        address authority = governor == address(0) ? deployer : governor;
-        if (msg.sender != authority) revert NotAuthorized(msg.sender);
+        if (msg.sender != _authority()) revert NotAuthorized(msg.sender);
     }
 }
