@@ -354,6 +354,14 @@ only the _first_ pinned target, never `address(0)`, so a consumer that checks
 just `keyLimits` denies the extra targets instead of allowing everything —
 **fail-closed by construction**.
 
+**The issuer acts for agents only.** The contract is constructed with the
+`OrgRegistry`. When the caller is not the root, `issue*` requires `agent` to be
+an existing, active `ManagerAgent` or `WorkerAgent` node (`IssuerAgentNotEligible`
+otherwise), so a compromised issuer cannot mint a key that proposes as the root
+or a peer human. The issuer may also only `revoke`, or supersede by re-issuing the
+same key binding, sessions it issued itself (`issuedBy(sessionId)`); the root can
+revoke any.
+
 Events: `SessionIssued`, `SessionTargetsPinned` (when >1 target),
 `SessionRevoked`. Root revocation never depends on the issuer — the root key
 can always kill a session.

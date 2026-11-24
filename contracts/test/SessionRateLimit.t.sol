@@ -49,7 +49,7 @@ contract SessionRateLimitTest is Test {
         PolicyStack stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
-        sessions = new SessionRegistry(root);
+        sessions = new SessionRegistry(root, address(registry));
         router.setSessionRegistry(address(sessions));
         // Without this the registry no-ops recordProposal; the rate limit is
         // opt-in exactly as session enforcement is opt-in on the router.

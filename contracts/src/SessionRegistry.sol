@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {SessionScopes} from "./SessionScopes.sol";
+import {IOrgRegistry} from "./interfaces/IOrgRegistry.sol";
 
 /// @title SessionRegistry
 /// @notice Onchain registry of scoped, expiring agent session keys.
@@ -39,6 +40,8 @@ contract SessionRegistry {
     }
 
     address public immutable humanRoot;
+    /// @notice Org tree consulted so a delegated issuer can only mint keys for agent nodes.
+    IOrgRegistry public immutable orgRegistry;
     /// @notice Optional issuer (orchestrator EOA). Defaults to humanRoot.
     address public issuer;
     /// @notice Longest lifetime the issuer may give a session, in seconds. Root-set;
@@ -51,6 +54,9 @@ contract SessionRegistry {
 
     uint256 public nextSessionId = 1;
     mapping(uint256 => Session) public sessions;
+    /// @notice Who issued each session. A delegated issuer may only revoke its own.
+    /// @dev Kept beside `Session` rather than in it so the public `sessions` getter keeps its shape.
+    mapping(uint256 => address) public issuedBy;
     mapping(address => uint256[]) private _byAgent;
     /// @dev agent => key => sessionId (0 = none / cleared)
     mapping(address => mapping(address => uint256)) public activeKeySession;
@@ -93,6 +99,9 @@ contract SessionRegistry {
     event SessionTargetsPinned(uint256 indexed sessionId, address[] targets);
 
     error NotAuthorized(address caller);
+    /// @dev The delegated issuer tried to mint a key for something other than an
+    ///      active manager/worker agent node (the root, a peer human, or an unknown account).
+    error IssuerAgentNotEligible(address agent);
     error ZeroAddress();
     error InvalidExpiry(uint64 expiresAt);
     error ExpiryExceedsIssuerTtl(uint64 expiresAt, uint64 maxExpiresAt);
@@ -111,9 +120,10 @@ contract SessionRegistry {
         _;
     }
 
-    constructor(address humanRoot_) {
-        if (humanRoot_ == address(0)) revert ZeroAddress();
+    constructor(address humanRoot_, address orgRegistry_) {
+        if (humanRoot_ == address(0) || orgRegistry_ == address(0)) revert ZeroAddress();
         humanRoot = humanRoot_;
+        orgRegistry = IOrgRegistry(orgRegistry_);
         issuer = humanRoot_;
     }
 
@@ -216,6 +226,9 @@ contract SessionRegistry {
         if (msg.sender != humanRoot) {
             uint64 maxExpiresAt = uint64(block.timestamp) + maxIssuerTtl;
             if (expiresAt > maxExpiresAt) revert ExpiryExceedsIssuerTtl(expiresAt, maxExpiresAt);
+            // The orchestrator-held issuer may only act for agents. A key minted for the
+            // root or a peer human would let it propose as that human, with no approver above.
+            _requireAgentNode(agent);
         }
         if (scopeMask == 0 || scopeMask & ~SessionScopes.ALL != 0) revert InvalidScopeMask(scopeMask);
         // A window is optional (both zero disables it); when set it must be a
@@ -232,6 +245,8 @@ contract SessionRegistry {
         // Revoke any prior active session for this key binding.
         uint256 prior = activeKeySession[agent][key];
         if (prior != 0 && !sessions[prior].revoked) {
+            // A delegated issuer must not be able to displace a session the root issued.
+            if (msg.sender != humanRoot && issuedBy[prior] != msg.sender) revert NotAuthorized(msg.sender);
             sessions[prior].revoked = true;
             emit SessionRevoked(prior, msg.sender);
         }
@@ -259,6 +274,7 @@ contract SessionRegistry {
             windowStart: windowStart,
             windowEnd: windowEnd
         });
+        issuedBy[sessionId] = msg.sender;
         _byAgent[agent].push(sessionId);
         activeKeySession[agent][key] = sessionId;
 
@@ -273,10 +289,23 @@ contract SessionRegistry {
         }
     }
 
-    /// @notice Root (or issuer) revokes a session. Product rule: prefer root-driven revoke.
+    /// @dev Reverts unless `agent` is an existing, active ManagerAgent/WorkerAgent node.
+    function _requireAgentNode(address agent) private view {
+        // getNode reverts with NodeNotFound for an unknown account; make that our own error.
+        try orgRegistry.getNode(agent) returns (IOrgRegistry.Node memory node) {
+            if (!node.active || node.kind == IOrgRegistry.NodeKind.HumanRoot) {
+                revert IssuerAgentNotEligible(agent);
+            }
+        } catch {
+            revert IssuerAgentNotEligible(agent);
+        }
+    }
+
+    /// @notice Root revokes any session. The delegated issuer may revoke only sessions it issued.
     function revoke(uint256 sessionId) external onlyRootOrIssuer {
         Session storage s = sessions[sessionId];
         if (!s.exists) revert SessionNotFound(sessionId);
+        if (msg.sender != humanRoot && issuedBy[sessionId] != msg.sender) revert NotAuthorized(msg.sender);
         if (s.revoked) revert AlreadyRevoked(sessionId);
         s.revoked = true;
         if (activeKeySession[s.agent][s.key] == sessionId) {

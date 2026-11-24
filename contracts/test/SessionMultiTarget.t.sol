@@ -55,7 +55,7 @@ contract SessionMultiTargetTest is Test {
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
 
-        sessions = new SessionRegistry(root);
+        sessions = new SessionRegistry(root, address(registry));
         vm.prank(root);
         sessions.setIssuer(address(this));
         router.setSessionRegistry(address(sessions));

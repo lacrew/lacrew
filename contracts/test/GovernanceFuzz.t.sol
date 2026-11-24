@@ -88,7 +88,7 @@ contract GovernanceFuzzTest is Test {
 
     function testFuzz_sessionExpires(uint64 ttl) public {
         ttl = uint64(bound(ttl, 1, 30 days));
-        SessionRegistry sessions = new SessionRegistry(root);
+        SessionRegistry sessions = new SessionRegistry(root, address(registry));
         address worker = makeAddr("agent");
         address key = makeAddr("key");
         uint64 exp = uint64(block.timestamp + ttl);
