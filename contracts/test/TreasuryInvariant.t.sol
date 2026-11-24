@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
+import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 
@@ -62,7 +63,9 @@ contract TreasuryInvariantTest is StdInvariant, Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        treasury = new Treasury(makeAddr("registry"), address(usdc), router);
+        address fakeRegistry = makeAddr("registry");
+        vm.mockCall(fakeRegistry, abi.encodeWithSelector(IOrgRegistry.generationOf.selector), abi.encode(uint64(0)));
+        treasury = new Treasury(fakeRegistry, address(usdc), router);
         handler = new TreasuryHandler(treasury, usdc, router);
 
         usdc.mint(address(handler), 1_000_000 * ONE);

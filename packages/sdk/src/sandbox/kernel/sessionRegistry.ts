@@ -53,6 +53,11 @@ export interface SessionRegistryState {
   sessions: Record<string, SessionState>;
   /** session id (decimal string) => who issued it. */
   issuedBy: Record<string, Address>;
+  /**
+   * session id (decimal string) => the agent's registry generation when issued. Optional
+   * because a world saved before it existed has none.
+   */
+  agentGenerationOf?: Record<string, bigint>;
   byAgent: Record<Address, bigint[]>;
   /** agent => key => session id (0 = none / cleared). */
   activeKeySession: Record<Address, Record<Address, bigint>>;
@@ -71,6 +76,7 @@ export function blankSessionRegistry(): SessionRegistryState {
     nextSessionId: 1n,
     sessions: {},
     issuedBy: {},
+    agentGenerationOf: {},
     byAgent: {},
     activeKeySession: {},
     sessionTargets: {},
@@ -315,6 +321,7 @@ function issueInternal(
     windowEnd,
   };
   state.issuedBy[sessionId.toString()] = ctx.sender;
+  (state.agentGenerationOf ??= {})[sessionId.toString()] = orgRegistry.generationOf(ctx, agent);
   (state.byAgent[agent] ??= []).push(sessionId);
   (state.activeKeySession[agent] ??= {})[key] = sessionId;
 
@@ -368,7 +375,13 @@ export function revoke(ctx: Ctx, sessionId: bigint): void {
 export function isValid(ctx: Ctx, sessionId: bigint): boolean {
   const s = sessionAt(ctx.world.sessionRegistry, sessionId);
   if (!s.exists || s.revoked) return false;
+  if (agentGenerationOf(ctx, sessionId) !== orgRegistry.generationOf(ctx, s.agent)) return false;
   return ctx.now < s.expiresAt;
+}
+
+/** `agentGenerationOf(sessionId)`: 0 for an unknown session. */
+export function agentGenerationOf(ctx: Ctx, sessionId: bigint): bigint {
+  return ctx.world.sessionRegistry.agentGenerationOf?.[sessionId.toString()] ?? 0n;
 }
 
 export function isKeyValid(ctx: Ctx, agent: Address, key: Address): boolean {
@@ -387,7 +400,7 @@ export function keyLimits(
   const id = activeId(state, agent, key);
   if (id === 0n) return none;
   const s = sessionAt(state, id);
-  if (!s.exists || s.revoked || ctx.now >= s.expiresAt) return none;
+  if (!isValid(ctx, id)) return none;
   return {
     valid: true,
     maxValue: s.maxValue,

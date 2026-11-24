@@ -54,6 +54,8 @@ contract RootRotationTest is Test {
         usdc = new MockUSDC();
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
+        // Governance rounds below advance time past the default intent lifetime.
+        router.setIntentTtl(365 days);
         usdc.mint(address(this), 10_000 * ONE);
         usdc.approve(address(treasury), type(uint256).max);
         treasury.deposit(10_000 * ONE);

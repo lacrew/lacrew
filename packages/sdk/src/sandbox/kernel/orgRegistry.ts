@@ -26,10 +26,15 @@ export interface OrgRegistryState {
   governor: Address;
   nodes: Record<Address, OrgNodeState>;
   children: Record<Address, Address[]>;
+  /**
+   * `generationOf`: how many times each address has been added to the tree. It keeps its
+   * value while the node is removed. Optional because a world saved before it existed has none.
+   */
+  generationOf?: Record<Address, bigint>;
 }
 
 export function blankOrgRegistry(): OrgRegistryState {
-  return { root: ZERO_ADDRESS, governor: ZERO_ADDRESS, nodes: {}, children: {} };
+  return { root: ZERO_ADDRESS, governor: ZERO_ADDRESS, nodes: {}, children: {}, generationOf: {} };
 }
 
 /** `_nodes[account]`: an unset slot reads as the zero struct. */
@@ -59,7 +64,18 @@ export function deploy(ctx: Ctx, address: Address, humanRoot_: Address): void {
       },
     },
     children: {},
+    generationOf: { [humanRoot]: 1n },
   };
+}
+
+/** `generationOf(account)`: 0 for an address never added. */
+export function generationOf(ctx: Ctx, account: Address): bigint {
+  return ctx.world.orgRegistry.generationOf?.[addr(account)] ?? 0n;
+}
+
+function bumpGeneration(state: OrgRegistryState, account: Address): void {
+  const generations = (state.generationOf ??= {});
+  generations[account] = (generations[account] ?? 0n) + 1n;
 }
 
 export function getNode(ctx: Ctx, account_: Address): OrgNodeState {
@@ -110,6 +126,7 @@ export function rotateRoot(ctx: Ctx, newRoot_: Address): void {
       newParent: ZERO_ADDRESS,
     });
   } else {
+    bumpGeneration(state, newRoot);
     state.nodes[newRoot] = {
       account: newRoot,
       kind: NodeKind.HumanRoot,
@@ -156,6 +173,7 @@ export function addNode(ctx: Ctx, account_: Address, kind: number, parent_: Addr
     throw new SimRevert("InvalidParent", { parent });
   }
 
+  bumpGeneration(state, account);
   state.nodes[account] = { account, kind, parent, active: true };
   childrenAt(state, parent).push(account);
   emit(ctx, ctx.world.addresses.orgRegistry, CONTRACT, "NodeAdded", { account, kind, parent });

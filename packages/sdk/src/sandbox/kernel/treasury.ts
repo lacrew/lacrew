@@ -4,6 +4,7 @@
  */
 
 import { asSender, emit } from "./frame.js";
+import * as orgRegistry from "./orgRegistry.js";
 import * as token from "./token.js";
 import { EVM_REVERT, SimRevert, ZERO_ADDRESS, addr, type Address } from "./types.js";
 import type { Ctx } from "./world.js";
@@ -20,6 +21,11 @@ export interface TreasuryState {
   streamer: Address;
   totalReserved: bigint;
   allowanceBalance: Record<Address, bigint>;
+  /**
+   * The registry incarnation each node's current allowance was granted under.
+   * Optional because a world saved before it existed has none.
+   */
+  allowanceGeneration?: Record<Address, bigint>;
 }
 
 export function blankTreasury(): TreasuryState {
@@ -32,6 +38,7 @@ export function blankTreasury(): TreasuryState {
     streamer: ZERO_ADDRESS,
     totalReserved: 0n,
     allowanceBalance: {},
+    allowanceGeneration: {},
   };
 }
 
@@ -101,6 +108,7 @@ export function streamAllowance(ctx: Ctx, node_: Address, amount: bigint, epoch:
     throw new SimRevert("InsufficientTreasury", { requested: amount, available: liquid });
   }
 
+  bindGeneration(ctx, node);
   state.allowanceBalance[node] = (state.allowanceBalance[node] ?? 0n) + amount;
   state.totalReserved += amount;
   emit(ctx, ctx.world.addresses.treasury, CONTRACT, "AllowanceStreamed", { node, amount, epoch });
@@ -133,9 +141,55 @@ export function refundAllowance(ctx: Ctx, node_: Address, amount: bigint): void 
   if (node === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
   requireToken(ctx);
   token.transferFrom(asSender(ctx, self), ctx.sender, self, amount);
+  bindGeneration(ctx, node);
   state.allowanceBalance[node] = (state.allowanceBalance[node] ?? 0n) + amount;
   state.totalReserved += amount;
   emit(ctx, self, CONTRACT, "AllowanceRefunded", { node, amount });
+}
+
+/**
+ * Return `amount` of `node`'s allowance to the liquid balance. Governor only;
+ * the deployer while no governor is bound. Emptying it clears its generation.
+ */
+export function revokeAllowance(ctx: Ctx, node_: Address, amount: bigint): void {
+  const state = ctx.world.treasury;
+  const node = addr(node_);
+  onlyGovernorOrBootstrap(ctx);
+  const available = state.allowanceBalance[node] ?? 0n;
+  if (available < amount) {
+    throw new SimRevert("InsufficientAllowance", { node, requested: amount, available });
+  }
+  state.allowanceBalance[node] = available - amount;
+  state.totalReserved -= amount;
+  if (available === amount) delete state.allowanceGeneration?.[node];
+  emit(ctx, ctx.world.addresses.treasury, CONTRACT, "AllowanceRevoked", { node, amount });
+}
+
+/** `allowanceGeneration(node)`. */
+export function allowanceGeneration(ctx: Ctx, node: Address): bigint {
+  return ctx.world.treasury.allowanceGeneration?.[addr(node)] ?? 0n;
+}
+
+/**
+ * An empty allowance starts under the node's current incarnation; a non-empty
+ * one must already belong to it.
+ */
+function bindGeneration(ctx: Ctx, node: Address): void {
+  const state = ctx.world.treasury;
+  const current = registryGeneration(ctx, node);
+  if ((state.allowanceBalance[node] ?? 0n) === 0n) {
+    (state.allowanceGeneration ??= {})[node] = current;
+  } else if (allowanceGeneration(ctx, node) !== current) {
+    throw new SimRevert("StaleAllowance", { node });
+  }
+}
+
+/** `IOrgRegistry(orgRegistry).generationOf`: only the simulated registry has code. */
+function registryGeneration(ctx: Ctx, node: Address): bigint {
+  if (ctx.world.treasury.orgRegistry !== ctx.world.addresses.orgRegistry) {
+    throw new SimRevert(EVM_REVERT);
+  }
+  return orgRegistry.generationOf(ctx, node);
 }
 
 /** How far the balance has fallen below what is reserved. */
@@ -166,6 +220,9 @@ function spend(ctx: Ctx, node: Address, amount: bigint, to: Address): void {
   const available = state.allowanceBalance[node] ?? 0n;
   if (available < amount) {
     throw new SimRevert("InsufficientAllowance", { node, requested: amount, available });
+  }
+  if (allowanceGeneration(ctx, node) !== registryGeneration(ctx, node)) {
+    throw new SimRevert("StaleAllowance", { node });
   }
   state.allowanceBalance[node] = available - amount;
   state.totalReserved -= amount;

@@ -25,6 +25,12 @@ interface IOrgRegistry {
     /// @notice Returns node metadata for `account`.
     function getNode(address account) external view returns (Node memory node);
 
+    /// @notice Incarnation counter of `account`. It increases each time the address is
+    ///         added to the tree, so state recorded against an earlier incarnation
+    ///         (intents, session keys, allowances) can be told apart from the current one.
+    ///         Stays at its last value while the node is removed.
+    function generationOf(address account) external view returns (uint64);
+
     /// @notice Returns direct reports of `parent`.
     function getChildren(address parent) external view returns (address[] memory children);
 }

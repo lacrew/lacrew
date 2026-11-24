@@ -1,5 +1,6 @@
 import type { Scenario } from "../scenario.js";
 import { governanceScenarios } from "./governance.js";
+import { lifecycleScenarios } from "./lifecycle.js";
 import { policyScenarios } from "./policies.js";
 import { registryScenarios } from "./registry.js";
 import { rootRotationScenarios } from "./rootRotation.js";
@@ -16,4 +17,5 @@ export const SCENARIOS: Scenario[] = [
   ...registryScenarios,
   ...governanceScenarios,
   ...rootRotationScenarios,
+  ...lifecycleScenarios,
 ];

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {FeeOnTransferToken} from "./utils/SettlementFixtures.sol";
@@ -18,6 +19,7 @@ contract TreasuryTest is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
+        vm.mockCall(registry, abi.encodeWithSelector(IOrgRegistry.generationOf.selector), abi.encode(uint64(0)));
         treasury = new Treasury(registry, address(usdc), router);
         usdc.mint(address(this), 1_000_000 * ONE);
         usdc.approve(address(treasury), type(uint256).max);

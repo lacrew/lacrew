@@ -17,6 +17,7 @@ import {
   ZERO_ADDRESS,
   addr,
   byteLength,
+  checkedAdd,
   type Address,
   type Hex,
 } from "./types.js";
@@ -34,6 +35,18 @@ export interface IntentState {
   approved: boolean;
 }
 
+/** When an intent stops being resolvable, and the incarnations of its agent and approver. */
+export interface IntentLifeState {
+  expiresAt: bigint;
+  agentGeneration: bigint;
+  approverGeneration: bigint;
+}
+
+/** `EscalationRouter.MIN_INTENT_TTL` / `MAX_INTENT_TTL` / the default `intentTtl`. */
+export const MIN_INTENT_TTL = 3_600n;
+export const MAX_INTENT_TTL = 365n * 86_400n;
+export const DEFAULT_INTENT_TTL = 7n * 86_400n;
+
 export interface EscalationRouterState {
   orgRegistry: Address;
   /** Default policy stack when `policyOf[node]` is unset. */
@@ -45,6 +58,10 @@ export interface EscalationRouterState {
   deployer: Address;
   governor: Address;
   nextIntentId: bigint;
+  /** Lifetime given to a new intent, in seconds. Optional because a world saved before it existed has none. */
+  intentTtl?: bigint;
+  /** Keyed by intent id as a decimal string. */
+  intentLife?: Record<string, IntentLifeState>;
   /** Keyed by intent id as a decimal string. */
   intents: Record<string, IntentState>;
   policyOf: Record<Address, Address>;
@@ -61,6 +78,8 @@ export function blankEscalationRouter(): EscalationRouterState {
     deployer: ZERO_ADDRESS,
     governor: ZERO_ADDRESS,
     nextIntentId: 1n,
+    intentTtl: DEFAULT_INTENT_TTL,
+    intentLife: {},
     intents: {},
     policyOf: {},
     rateRecorderOf: {},
@@ -84,6 +103,33 @@ export function setGovernor(ctx: Ctx, governor_: Address): void {
   onlyGovernorOrBootstrap(ctx);
   ctx.world.escalationRouter.governor = governor;
   emit(ctx, ctx.world.addresses.escalationRouter, CONTRACT, "GovernorUpdated", { governor });
+}
+
+/** Set the lifetime of intents created from now on. */
+export function setIntentTtl(ctx: Ctx, ttl: bigint): void {
+  onlyGovernorOrBootstrap(ctx);
+  if (ttl < MIN_INTENT_TTL || ttl > MAX_INTENT_TTL)
+    throw new SimRevert("InvalidIntentTtl", { ttl });
+  ctx.world.escalationRouter.intentTtl = ttl;
+  emit(ctx, ctx.world.addresses.escalationRouter, CONTRACT, "IntentTtlUpdated", {
+    intentTtl: ttl,
+  });
+}
+
+/** `intentTtl()`. */
+export function intentTtl(ctx: Ctx): bigint {
+  return ctx.world.escalationRouter.intentTtl ?? DEFAULT_INTENT_TTL;
+}
+
+/** `intentLife(id)`: the stored struct, or the zero struct for an unknown id. */
+export function intentLife(ctx: Ctx, intentId: bigint): IntentLifeState {
+  return {
+    ...(ctx.world.escalationRouter.intentLife?.[intentId.toString()] ?? {
+      expiresAt: 0n,
+      agentGeneration: 0n,
+      approverGeneration: 0n,
+    }),
+  };
 }
 
 export function setTreasury(ctx: Ctx, treasury_: Address): void {
@@ -179,6 +225,12 @@ export function propose(
     approved: false,
   };
 
+  (state.intentLife ??= {})[intentId.toString()] = {
+    expiresAt: checkedAdd(ctx.now, intentTtl(ctx), 64),
+    agentGeneration: orgRegistry.generationOf(ctx, agent),
+    approverGeneration: orgRegistry.generationOf(ctx, agentNode.parent),
+  };
+
   recordRate(ctx, agent);
   emit(ctx, self, CONTRACT, "IntentCreated", {
     intentId,
@@ -200,11 +252,15 @@ export function resolve(ctx: Ctx, intentId: bigint, approved: boolean): void {
   const intent = state.intents[intentId.toString()];
   if (!intent || intent.agent === ZERO_ADDRESS) throw new SimRevert("IntentNotFound", { intentId });
   if (intent.resolved) throw new SimRevert("IntentAlreadyResolved", { intentId });
+  const life = intentLife(ctx, intentId);
+  if (ctx.now >= life.expiresAt) {
+    throw new SimRevert("IntentHasExpired", { intentId, expiresAt: life.expiresAt });
+  }
   const awaiting = intent.awaitingApprover;
+  const awaitingLive = isCurrentNode(ctx, awaiting, life.approverGeneration);
   if (ctx.sender === awaiting) {
-    if (!isActiveNode(ctx, awaiting))
-      throw new SimRevert("InactiveApprover", { approver: awaiting });
-  } else if (ctx.sender !== registryRoot(ctx) || isActiveNode(ctx, awaiting)) {
+    if (!awaitingLive) throw new SimRevert("InactiveApprover", { approver: awaiting });
+  } else if (ctx.sender !== registryRoot(ctx) || awaitingLive) {
     throw new SimRevert("NotAwaitingApprover", { caller: ctx.sender });
   }
 
@@ -215,7 +271,7 @@ export function resolve(ctx: Ctx, intentId: bigint, approved: boolean): void {
     return;
   }
 
-  if (!isActiveNode(ctx, intent.agent))
+  if (!isCurrentNode(ctx, intent.agent, life.agentGeneration))
     throw new SimRevert("InactiveAgent", { agent: intent.agent });
 
   const verdict = policies.check(
@@ -255,7 +311,27 @@ export function resolve(ctx: Ctx, intentId: bigint, approved: boolean): void {
   const nextApprover = approver.parent;
   const previous = intent.awaitingApprover;
   intent.awaitingApprover = nextApprover;
+  ctx.world.escalationRouter.intentLife![intentId.toString()]!.approverGeneration =
+    orgRegistry.generationOf(ctx, nextApprover);
   emit(ctx, self, CONTRACT, "IntentEscalated", { intentId, from: previous, to: nextApprover });
+}
+
+/**
+ * Close an intent that passed its expiry. Anyone may call; it only ever
+ * rejects.
+ */
+export function closeExpired(ctx: Ctx, intentId: bigint): void {
+  const state = ctx.world.escalationRouter;
+  const self = ctx.world.addresses.escalationRouter;
+  const intent = state.intents[intentId.toString()];
+  if (!intent || intent.agent === ZERO_ADDRESS) throw new SimRevert("IntentNotFound", { intentId });
+  if (intent.resolved) throw new SimRevert("IntentAlreadyResolved", { intentId });
+  const { expiresAt } = intentLife(ctx, intentId);
+  if (ctx.now < expiresAt) throw new SimRevert("IntentNotExpired", { intentId, expiresAt });
+  intent.resolved = true;
+  intent.approved = false;
+  emit(ctx, self, CONTRACT, "IntentExpired", { intentId, closedBy: ctx.sender });
+  emit(ctx, self, CONTRACT, "IntentResolved", { intentId, approved: false });
 }
 
 /** `intents(id)`: the stored struct, or the zero struct for an unknown id. */
@@ -469,6 +545,11 @@ function isActiveNode(ctx: Ctx, account: Address): boolean {
   }
   const node = ctx.world.orgRegistry.nodes[account];
   return node !== undefined && node.account !== ZERO_ADDRESS && node.active;
+}
+
+/** Active now and still the incarnation the intent was recorded under. */
+function isCurrentNode(ctx: Ctx, account: Address, generation: bigint): boolean {
+  return isActiveNode(ctx, account) && orgRegistry.generationOf(ctx, account) === generation;
 }
 
 /** A wired session registry that is not the simulated one has no `keyLimits` to answer. */

@@ -92,6 +92,7 @@ const ORG_REGISTRY: HandlerTable = {
   governor: (ctx) => ctx.world.orgRegistry.governor,
   getNode: (ctx, [account]) => orgRegistry.getNode(ctx, account),
   getChildren: (ctx, [parent]) => orgRegistry.getChildren(ctx, parent),
+  generationOf: (ctx, [account]) => orgRegistry.generationOf(ctx, account),
   setGovernor: (ctx, [governor]) => orgRegistry.setGovernor(ctx, governor),
   addNode: (ctx, [account, kind, parent]) =>
     orgRegistry.addNode(ctx, account, enumValue(kind, 3), parent),
@@ -104,6 +105,7 @@ const ORG_REGISTRY: HandlerTable = {
 const TREASURY: HandlerTable = {
   totalReserved: (ctx) => ctx.world.treasury.totalReserved,
   allowanceBalance: (ctx, [node]) => ctx.world.treasury.allowanceBalance[addr(node)] ?? 0n,
+  allowanceGeneration: (ctx, [node]) => treasury.allowanceGeneration(ctx, node),
   liquidBalance: (ctx) => treasury.liquidBalance(ctx),
   token: (ctx) => ctx.world.treasury.token,
   spender: (ctx) => ctx.world.treasury.spender,
@@ -119,12 +121,19 @@ const TREASURY: HandlerTable = {
   // Two overloads share the name; the argument count tells them apart.
   spendAllowance: (ctx, [node, amount, to]) => treasury.spendAllowance(ctx, node, big(amount), to),
   refundAllowance: (ctx, [node, amount]) => treasury.refundAllowance(ctx, node, big(amount)),
+  revokeAllowance: (ctx, [node, amount]) => treasury.revokeAllowance(ctx, node, big(amount)),
   shortfall: (ctx) => treasury.shortfall(ctx),
 };
 
 const ESCALATION_ROUTER: HandlerTable = {
   nextIntentId: (ctx) => ctx.world.escalationRouter.nextIntentId,
   intents: (ctx, [id]) => escalationRouter.intents(ctx, big(id)),
+  intentLife: (ctx, [id]) => escalationRouter.intentLife(ctx, big(id)),
+  intentTtl: (ctx) => escalationRouter.intentTtl(ctx),
+  MIN_INTENT_TTL: () => escalationRouter.MIN_INTENT_TTL,
+  MAX_INTENT_TTL: () => escalationRouter.MAX_INTENT_TTL,
+  setIntentTtl: (ctx, [ttl]) => escalationRouter.setIntentTtl(ctx, big(ttl)),
+  closeExpired: (ctx, [id]) => escalationRouter.closeExpired(ctx, big(id)),
   policy: (ctx) => ctx.world.escalationRouter.policy,
   policyOf: (ctx, [node]) => ctx.world.escalationRouter.policyOf[addr(node)] ?? ZERO_ADDRESS,
   rateRecorderOf: (ctx, [node]) =>
@@ -150,6 +159,7 @@ const SESSION_REGISTRY: HandlerTable = {
   rotateRoot: (ctx, [newRoot]) => sessionRegistry.rotateRoot(ctx, newRoot),
   maxIssuerTtl: (ctx) => ctx.world.sessionRegistry.maxIssuerTtl,
   sessions: (ctx, [id]) => sessionRegistry.sessions(ctx, big(id)),
+  agentGenerationOf: (ctx, [id]) => sessionRegistry.agentGenerationOf(ctx, big(id)),
   rateLimits: (ctx, [id]) => sessionRegistry.rateLimits(ctx, big(id)),
   sessionsOf: (ctx, [agent]) => sessionRegistry.sessionsOf(ctx, agent),
   allowedTargetsOf: (ctx, [id]) => sessionRegistry.allowedTargetsOf(ctx, big(id)),

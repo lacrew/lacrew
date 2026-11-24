@@ -39,6 +39,9 @@ contract Treasury is ITreasurySpender {
 
     uint256 public totalReserved;
     mapping(address => uint256) public allowanceBalance;
+    /// @notice The node's `OrgRegistry` incarnation its current allowance was granted under.
+    ///         Allowance left by a removed node is not spendable by whoever re-takes the address.
+    mapping(address => uint64) public allowanceGeneration;
 
     event SpenderUpdated(address indexed spender);
     event GovernorUpdated(address indexed governor);
@@ -53,6 +56,9 @@ contract Treasury is ITreasurySpender {
     event Withdrawn(address indexed to, uint256 amount);
 
     error InsufficientAllowance(address node, uint256 requested, uint256 available);
+    /// @dev The node's allowance predates its current incarnation; governance must
+    ///      `revokeAllowance` it back to the treasury first.
+    error StaleAllowance(address node);
     error InsufficientTreasury(uint256 requested, uint256 available);
     error NotSpender(address caller);
     error NotAuthorized(address caller);
@@ -146,6 +152,7 @@ contract Treasury is ITreasurySpender {
         uint256 liquid = liquidBalance();
         if (liquid < amount) revert InsufficientTreasury(amount, liquid);
 
+        _bindGeneration(node);
         allowanceBalance[node] += amount;
         totalReserved += amount;
         emit AllowanceStreamed(node, amount, epoch);
@@ -174,6 +181,7 @@ contract Treasury is ITreasurySpender {
         if (msg.sender != spender) revert NotSpender(msg.sender);
         if (node == address(0)) revert ZeroAddress();
         _pullExact(msg.sender, amount);
+        _bindGeneration(node);
         allowanceBalance[node] += amount;
         totalReserved += amount;
         emit AllowanceRefunded(node, amount);
@@ -188,6 +196,7 @@ contract Treasury is ITreasurySpender {
         if (available < amount) revert InsufficientAllowance(node, amount, available);
         allowanceBalance[node] = available - amount;
         totalReserved -= amount;
+        if (available == amount) delete allowanceGeneration[node];
         emit AllowanceRevoked(node, amount);
     }
 
@@ -237,9 +246,23 @@ contract Treasury is ITreasurySpender {
         if (msg.sender != _authority()) revert NotAuthorized(msg.sender);
     }
 
+    /// @dev An empty allowance starts under the node's current incarnation; a non-empty
+    ///      one must already belong to it.
+    function _bindGeneration(address node) private {
+        uint64 current = IOrgRegistry(orgRegistry).generationOf(node);
+        if (allowanceBalance[node] == 0) {
+            allowanceGeneration[node] = current;
+        } else if (allowanceGeneration[node] != current) {
+            revert StaleAllowance(node);
+        }
+    }
+
     function _spend(address node, uint256 amount, address to) private {
         uint256 available = allowanceBalance[node];
         if (available < amount) revert InsufficientAllowance(node, amount, available);
+        if (allowanceGeneration[node] != IOrgRegistry(orgRegistry).generationOf(node)) {
+            revert StaleAllowance(node);
+        }
         allowanceBalance[node] = available - amount;
         totalReserved -= amount;
         uint256 before = token.balanceOf(to);
