@@ -39,6 +39,10 @@ export const NOT_SIMULATED: Record<string, string> = {
     "OpenZeppelin guard against approving from the zero address; msg.sender is never zero.",
   "MockUSDC.ERC20InvalidSender":
     "OpenZeppelin guard against transferring from the zero address; no caller can be it.",
+  "EscalationRouter.setValueRecorder":
+    "Binds a CumulativeValuePolicy, which the sandbox does not model; a sandbox org records no settled value. TODO: mirror the module and the router's value recording in the kernel.",
+  "EscalationRouter.setNodeValueRecorder":
+    "Per-node binding of a CumulativeValuePolicy; not simulated for the same reason as setValueRecorder.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
   "Treasury.SafeERC20FailedOperation":

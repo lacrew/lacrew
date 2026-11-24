@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {IPolicyModule, Verdict} from "./interfaces/IPolicyModule.sol";
 import {IOrgRegistry} from "./interfaces/IOrgRegistry.sol";
 import {IRateRecorder} from "./interfaces/IRateRecorder.sol";
+import {IValueRecorder} from "./interfaces/IValueRecorder.sol";
 import {ITreasurySpender} from "./interfaces/ITreasurySpender.sol";
 import {SessionRegistry} from "./SessionRegistry.sol";
 import {SessionScopes} from "./SessionScopes.sol";
@@ -46,6 +47,11 @@ contract EscalationRouter {
     /// A node bound to its own RateLimitPolicy needs its executed actions
     /// counted in that module's windows; the global recorder never sees them.
     mapping(address => IRateRecorder) public rateRecorderOf;
+    /// @notice Optional value recorder (a CumulativeValuePolicy) charged with every
+    ///         settled spend, so its window budget sees what actually left treasury.
+    IValueRecorder public valueRecorder;
+    /// @notice Optional per-node value recorder (falls back to `valueRecorder`).
+    mapping(address => IValueRecorder) public valueRecorderOf;
 
     event IntentCreated(uint256 indexed intentId, address indexed agent, address awaitingApprover);
     event IntentEscalated(uint256 indexed intentId, address indexed from, address indexed to);
@@ -61,6 +67,8 @@ contract EscalationRouter {
     event SessionRegistryUpdated(address indexed sessionRegistry);
     event NodePolicyUpdated(address indexed node, address indexed policyModule);
     event NodeRateRecorderUpdated(address indexed node, address indexed rateRecorder);
+    event ValueRecorderUpdated(address indexed valueRecorder);
+    event NodeValueRecorderUpdated(address indexed node, address indexed valueRecorder);
     event GovernorUpdated(address indexed governor);
 
     error IntentNotFound(uint256 intentId);
@@ -77,7 +85,7 @@ contract EscalationRouter {
     error SessionScopeDenied(address agent, uint256 required, uint256 granted);
     error SessionTimeWindowDenied(address agent);
     /// @dev The router is `Treasury.spender`, `SessionRegistry.escalationRouter` and the
-    ///      bound recorder of its rate modules. Letting an agent aim a policy-admitted
+    ///      bound recorder of its rate and value modules. Letting an agent aim a policy-admitted
     ///      call at one of those would lend it the router's own authority.
     error ProtectedTarget(address target);
     error ZeroAddress();
@@ -133,6 +141,22 @@ contract EscalationRouter {
         if (node == address(0)) revert ZeroAddress();
         rateRecorderOf[node] = IRateRecorder(rateRecorder_);
         emit NodeRateRecorderUpdated(node, rateRecorder_);
+    }
+
+    /// @notice Wire the value recorder charged with every settled spend.
+    function setValueRecorder(address valueRecorder_) external {
+        _onlyGovernorOrBootstrap();
+        valueRecorder = IValueRecorder(valueRecorder_);
+        emit ValueRecorderUpdated(valueRecorder_);
+    }
+
+    /// @notice Bind a node's own value recorder (its custom CumulativeValuePolicy).
+    /// Pass address(0) to clear (fall back to the global `valueRecorder`).
+    function setNodeValueRecorder(address node, address valueRecorder_) external {
+        _onlyGovernorOrBootstrap();
+        if (node == address(0)) revert ZeroAddress();
+        valueRecorderOf[node] = IValueRecorder(valueRecorder_);
+        emit NodeValueRecorderUpdated(node, valueRecorder_);
     }
 
     /// @notice Propose an action; ALLOW executes spend+call, ESCALATE creates an intent, DENY reverts.
@@ -266,8 +290,9 @@ contract EscalationRouter {
         uint256 value,
         bytes memory data
     ) private {
-        if (address(treasury) != address(0) && value > 0) {
-            treasury.spendAllowance(agent, value, target);
+        if (value > 0) {
+            if (address(treasury) != address(0)) treasury.spendAllowance(agent, value, target);
+            _recordValue(agent, target, value);
         }
 
         bool callOk = true;
@@ -283,6 +308,14 @@ contract EscalationRouter {
         if (address(recorder) == address(0)) recorder = rateRecorder;
         if (address(recorder) != address(0)) {
             recorder.record(agent);
+        }
+    }
+
+    function _recordValue(address agent, address target, uint256 value) private {
+        IValueRecorder recorder = valueRecorderOf[agent];
+        if (address(recorder) == address(0)) recorder = valueRecorder;
+        if (address(recorder) != address(0)) {
+            recorder.recordValue(agent, target, value);
         }
     }
 
@@ -337,7 +370,8 @@ contract EscalationRouter {
         if (
             target == address(this) || target == address(treasury)
                 || target == address(sessionRegistry) || target == address(rateRecorder)
-                || target == address(rateRecorderOf[agent])
+                || target == address(rateRecorderOf[agent]) || target == address(valueRecorder)
+                || target == address(valueRecorderOf[agent])
         ) {
             revert ProtectedTarget(target);
         }

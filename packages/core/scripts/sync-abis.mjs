@@ -50,6 +50,11 @@ const CONTRACTS = [
     exportName: "rateLimitPolicyAbi",
   },
   {
+    name: "CumulativeValuePolicy",
+    file: "CumulativeValuePolicy.sol/CumulativeValuePolicy.json",
+    exportName: "cumulativeValuePolicyAbi",
+  },
+  {
     name: "TimeWindowPolicy",
     file: "TimeWindowPolicy.sol/TimeWindowPolicy.json",
     exportName: "timeWindowPolicyAbi",
@@ -86,6 +91,10 @@ const BYTECODE_CONTRACTS = [
   {
     file: "RateLimitPolicy.sol/RateLimitPolicy.json",
     exportName: "rateLimitPolicyBytecode",
+  },
+  {
+    file: "CumulativeValuePolicy.sol/CumulativeValuePolicy.json",
+    exportName: "cumulativeValuePolicyBytecode",
   },
   {
     file: "TimeWindowPolicy.sol/TimeWindowPolicy.json",
