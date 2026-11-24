@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {IOrgRegistry} from "./interfaces/IOrgRegistry.sol";
 import {ITreasurySpender} from "./interfaces/ITreasurySpender.sol";
 
 /// @title Treasury
@@ -23,6 +24,10 @@ contract Treasury is ITreasurySpender {
     /// @notice Optional epoch job that may call `streamAllowance`.
     address public streamer;
 
+    /// @notice Emergency stop: while set, `streamAllowance` and `spendAllowance` revert.
+    ///         Deposits stay open, and the router's reject/cancel paths never touch the treasury.
+    bool public paused;
+
     uint256 public totalReserved;
     mapping(address => uint256) public allowanceBalance;
 
@@ -32,12 +37,17 @@ contract Treasury is ITreasurySpender {
     event Deposited(address indexed from, uint256 amount);
     event AllowanceStreamed(address indexed node, uint256 amount, uint64 epoch);
     event AllowanceSpent(address indexed node, uint256 amount, address indexed to);
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
 
     error InsufficientAllowance(address node, uint256 requested, uint256 available);
     error InsufficientTreasury(uint256 requested, uint256 available);
     error NotSpender(address caller);
     error NotAuthorized(address caller);
     error ZeroAddress();
+    error EnforcedPause();
+    error AlreadyPaused();
+    error NotPaused();
 
     constructor(address orgRegistry_, address token_, address spender_) {
         if (orgRegistry_ == address(0) || token_ == address(0)) revert ZeroAddress();
@@ -81,6 +91,25 @@ contract Treasury is ITreasurySpender {
         emit SpenderUpdated(spender_);
     }
 
+    /// @notice Emergency stop. Any active human seat in the org tree, or the current
+    ///         governance authority, may pause; only that authority (the governor once
+    ///         bound, the deployer until then) can unpause, so lifting it goes through
+    ///         governance while stopping it needs no vote.
+    function pause() external {
+        if (paused) revert AlreadyPaused();
+        if (!_isHumanSeat(msg.sender) && msg.sender != _authority()) revert NotAuthorized(msg.sender);
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Lift the emergency stop.
+    function unpause() external {
+        _onlyGovernorOrBootstrap();
+        if (!paused) revert NotPaused();
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
     /// @notice Deposit ERC-20 into the treasury (caller must approve first).
     function deposit(uint256 amount) external {
         token.safeTransferFrom(msg.sender, address(this), amount);
@@ -91,6 +120,7 @@ contract Treasury is ITreasurySpender {
     /// @dev Governor or streamer; the deployer only while neither is bound (see
     ///      `setStreamer` for why a bound streamer displaces the deployer).
     function streamAllowance(address node, uint256 amount, uint64 epoch) external {
+        if (paused) revert EnforcedPause();
         if (governor != address(0) || streamer != address(0)) {
             if (msg.sender != governor && msg.sender != streamer) revert NotAuthorized(msg.sender);
         } else if (msg.sender != deployer) {
@@ -110,6 +140,7 @@ contract Treasury is ITreasurySpender {
     /// @inheritdoc ITreasurySpender
     function spendAllowance(address node, uint256 amount, address to) external {
         if (msg.sender != spender) revert NotSpender(msg.sender);
+        if (paused) revert EnforcedPause();
         if (to == address(0)) revert ZeroAddress();
         _spend(node, amount, to);
     }
@@ -117,6 +148,7 @@ contract Treasury is ITreasurySpender {
     /// @notice Debit `node` allowance and transfer tokens to the spender (router).
     function spendAllowance(address node, uint256 amount) external {
         if (msg.sender != spender) revert NotSpender(msg.sender);
+        if (paused) revert EnforcedPause();
         _spend(node, amount, msg.sender);
     }
 
@@ -126,9 +158,20 @@ contract Treasury is ITreasurySpender {
     }
 
     /// @dev Governor once bound; the deployer until then.
+    function _authority() private view returns (address) {
+        return governor == address(0) ? deployer : governor;
+    }
+
+    function _isHumanSeat(address account) private view returns (bool) {
+        try IOrgRegistry(orgRegistry).getNode(account) returns (IOrgRegistry.Node memory node) {
+            return node.active && node.kind == IOrgRegistry.NodeKind.HumanRoot;
+        } catch {
+            return false;
+        }
+    }
+
     function _onlyGovernorOrBootstrap() private view {
-        address authority = governor == address(0) ? deployer : governor;
-        if (msg.sender != authority) revert NotAuthorized(msg.sender);
+        if (msg.sender != _authority()) revert NotAuthorized(msg.sender);
     }
 
     function _spend(address node, uint256 amount, address to) private {
