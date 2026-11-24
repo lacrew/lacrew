@@ -36,6 +36,7 @@ contract OrgRegistry is IOrgRegistry {
     event NodeRemoved(address indexed account, address indexed formerParent);
     event NodeReparented(address indexed account, address indexed oldParent, address indexed newParent);
     event NodeActiveUpdated(address indexed account, bool active);
+    event RootRotated(address indexed oldRoot, address indexed newRoot);
 
     error NodeAlreadyExists(address account);
     error NodeNotFound(address account);
@@ -47,6 +48,7 @@ contract OrgRegistry is IOrgRegistry {
     error ZeroAddress();
     error TooManyChildren(address parent);
     error MaxDepthExceeded(address account);
+    error InvalidRoot(address account);
 
     constructor(address humanRoot) {
         if (humanRoot == address(0)) revert ZeroAddress();
@@ -79,6 +81,56 @@ contract OrgRegistry is IOrgRegistry {
             revert NotAuthorized(msg.sender);
         }
         governor = governor_;
+    }
+
+    /// @notice Hand the root node to `newRoot`, the recovery path for a lost or
+    ///         compromised root key. Governor-only once one is bound (GovernanceModule
+    ///         reaches it through a High-tier `rotateRoot`); the root itself before that.
+    /// @dev The old root's node is removed, not demoted: a key retired because it may be
+    ///      compromised keeps no place in the tree, and with it no fallback authority in
+    ///      `EscalationRouter.resolve`, which reads `root` live. Its direct reports move
+    ///      under `newRoot` unchanged.
+    ///
+    ///      `newRoot` is either a fresh address or a peer human already seated under the
+    ///      root (a `HumanRoot` child of it) — promoting a partner is the common case.
+    ///      Any other existing node is refused: lifting an agent, or a human from deeper
+    ///      in the tree, to the top would silently restructure what hangs below it.
+    function rotateRoot(address newRoot) external {
+        _authorize();
+        if (newRoot == address(0)) revert ZeroAddress();
+        address oldRoot = root;
+        Node storage promoted = _nodes[newRoot];
+        if (promoted.account != address(0)) {
+            if (promoted.kind != NodeKind.HumanRoot || promoted.parent != oldRoot) {
+                revert InvalidRoot(newRoot);
+            }
+            _removeFromParent(oldRoot, newRoot);
+            promoted.parent = address(0);
+            promoted.active = true;
+            emit NodeReparented(newRoot, oldRoot, address(0));
+        } else {
+            _nodes[newRoot] = Node({
+                account: newRoot,
+                kind: NodeKind.HumanRoot,
+                parent: address(0),
+                active: true
+            });
+            emit NodeAdded(newRoot, NodeKind.HumanRoot, address(0));
+        }
+
+        address[] storage kids = _children[oldRoot];
+        uint256 kidCount = kids.length;
+        for (uint256 i = 0; i < kidCount; i++) {
+            address child = kids[i];
+            _nodes[child].parent = newRoot;
+            _children[newRoot].push(child);
+            emit NodeReparented(child, oldRoot, newRoot);
+        }
+        delete _children[oldRoot];
+        delete _nodes[oldRoot];
+        root = newRoot;
+        emit NodeRemoved(oldRoot, address(0));
+        emit RootRotated(oldRoot, newRoot);
     }
 
     /// @notice Add a child node under `parent`.

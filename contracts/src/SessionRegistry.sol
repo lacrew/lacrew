@@ -8,6 +8,11 @@ import {IOrgRegistry} from "./interfaces/IOrgRegistry.sol";
 /// @notice Onchain registry of scoped, expiring agent session keys.
 /// @dev Phase 0 bridge before ERC-4337 session modules (F1.3). Root issues and revokes;
 ///      orchestrator holds only the ephemeral private key off-chain.
+///
+///      A bound `governor` (GovernanceModule) is the authority above the root: it can
+///      replace or revoke a compromised issuer, revoke any session, and rotate the root
+///      key itself. Everything else stays the root's, so day-to-day issuance never
+///      waits on a vote.
 ///      EscalationRouter enforces `scopeMask`, `maxValue`, and optional
 ///      `allowedTarget` (`address(0)` = any target that still passes policy).
 ///
@@ -39,7 +44,11 @@ contract SessionRegistry {
         uint32 windowEnd;
     }
 
-    address public immutable humanRoot;
+    /// @notice The org's root key. Rotated only by the governor (or by itself before
+    ///         one is bound), so a lost or compromised key is recoverable.
+    address public humanRoot;
+    /// @notice When non-zero, may set the issuer, revoke sessions and rotate the root.
+    address public governor;
     /// @notice Org tree consulted so a delegated issuer can only mint keys for agent nodes.
     IOrgRegistry public immutable orgRegistry;
     /// @notice Optional issuer (orchestrator EOA). Defaults to humanRoot.
@@ -83,6 +92,8 @@ contract SessionRegistry {
     address public escalationRouter;
 
     event IssuerUpdated(address indexed issuer);
+    event GovernorUpdated(address indexed governor);
+    event RootRotated(address indexed oldRoot, address indexed newRoot);
     event MaxIssuerTtlUpdated(uint64 maxIssuerTtl);
     event EscalationRouterUpdated(address indexed escalationRouter);
     event SessionIssued(
@@ -120,6 +131,14 @@ contract SessionRegistry {
         _;
     }
 
+    /// @dev The root, or the governor once bound.
+    modifier onlyRootOrGovernor() {
+        if (msg.sender != humanRoot && (governor == address(0) || msg.sender != governor)) {
+            revert NotAuthorized(msg.sender);
+        }
+        _;
+    }
+
     constructor(address humanRoot_, address orgRegistry_) {
         if (humanRoot_ == address(0) || orgRegistry_ == address(0)) revert ZeroAddress();
         humanRoot = humanRoot_;
@@ -127,8 +146,43 @@ contract SessionRegistry {
         issuer = humanRoot_;
     }
 
-    function setIssuer(address issuer_) external {
-        if (msg.sender != humanRoot) revert NotAuthorized(msg.sender);
+    /// @notice Bind governance. Callable by the root until bound, then only by the
+    ///         current governor — the same handover as every other governed contract.
+    function setGovernor(address governor_) external {
+        if (governor_ == address(0)) revert ZeroAddress();
+        if (governor != address(0)) {
+            if (msg.sender != governor) revert NotAuthorized(msg.sender);
+        } else if (msg.sender != humanRoot) {
+            revert NotAuthorized(msg.sender);
+        }
+        governor = governor_;
+        emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Hand the root key to `newRoot`. Governor-only once one is bound (the
+    ///         recovery path for a lost or compromised key); the root itself before.
+    /// @dev An issuer still set to the old root follows it to `newRoot`: the old key is
+    ///      retired because it may be compromised, so it keeps no issuing authority. A
+    ///      separate issuer (the orchestrator) is left as it is.
+    function rotateRoot(address newRoot) external {
+        if (governor != address(0)) {
+            if (msg.sender != governor) revert NotAuthorized(msg.sender);
+        } else if (msg.sender != humanRoot) {
+            revert NotAuthorized(msg.sender);
+        }
+        if (newRoot == address(0)) revert ZeroAddress();
+        address oldRoot = humanRoot;
+        humanRoot = newRoot;
+        emit RootRotated(oldRoot, newRoot);
+        if (issuer == oldRoot) {
+            issuer = newRoot;
+            emit IssuerUpdated(newRoot);
+        }
+    }
+
+    /// @notice Replace the issuer. Root or governor: governance can swap out a
+    ///         compromised orchestrator key without the root's signature.
+    function setIssuer(address issuer_) external onlyRootOrGovernor {
         if (issuer_ == address(0)) revert ZeroAddress();
         issuer = issuer_;
         emit IssuerUpdated(issuer_);
@@ -301,11 +355,16 @@ contract SessionRegistry {
         }
     }
 
-    /// @notice Root revokes any session. The delegated issuer may revoke only sessions it issued.
-    function revoke(uint256 sessionId) external onlyRootOrIssuer {
+    /// @notice Root or governor revokes any session. The delegated issuer may revoke only
+    ///         sessions it issued. Product rule: prefer root-driven revoke; the governor
+    ///         path covers a root that cannot act.
+    function revoke(uint256 sessionId) external {
+        bool rootOrGovernor = msg.sender == humanRoot
+            || (governor != address(0) && msg.sender == governor);
+        if (!rootOrGovernor && msg.sender != issuer) revert NotAuthorized(msg.sender);
         Session storage s = sessions[sessionId];
         if (!s.exists) revert SessionNotFound(sessionId);
-        if (msg.sender != humanRoot && issuedBy[sessionId] != msg.sender) revert NotAuthorized(msg.sender);
+        if (!rootOrGovernor && issuedBy[sessionId] != msg.sender) revert NotAuthorized(msg.sender);
         if (s.revoked) revert AlreadyRevoked(sessionId);
         s.revoked = true;
         if (activeKeySession[s.agent][s.key] == sessionId) {

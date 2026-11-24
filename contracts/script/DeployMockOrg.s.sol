@@ -172,6 +172,7 @@ contract DeployMockOrg is Script {
         _seatSecondHuman(d, humanRoot);
 
         d.registry.setGovernor(address(d.gov));
+        d.sessionRegistry.setGovernor(address(d.gov));
         d.treasury.setGovernor(address(d.gov));
         d.router.setGovernor(address(d.gov));
         d.epochStreamer.setGovernor(address(d.gov));
