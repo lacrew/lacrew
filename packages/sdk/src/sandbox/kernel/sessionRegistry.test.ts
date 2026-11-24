@@ -171,8 +171,10 @@ describe("kernel SessionRegistry", () => {
     sim.send(ROOT, (ctx) => sessionRegistry.setIssuer(ctx, ISSUER));
     const ceiling = T0 + 30n * ONE_DAY;
     // Distinct keys per caller: an issuer may not supersede a root-issued session.
-    const withExpiry = (expiresAt: bigint, key: Address = KEY) => (ctx: Ctx) =>
-      sessionRegistry.issue(ctx, WORKER, key, expiresAt, SCOPE_ALL, 1n, ZERO_ADDRESS);
+    const withExpiry =
+      (expiresAt: bigint, key: Address = KEY) =>
+      (ctx: Ctx) =>
+        sessionRegistry.issue(ctx, WORKER, key, expiresAt, SCOPE_ALL, 1n, ZERO_ADDRESS);
 
     const err = sim.reverts("ExpiryExceedsIssuerTtl", ISSUER, withExpiry(ceiling + 1n));
     assert.deepEqual(err.args, { expiresAt: ceiling + 1n, maxExpiresAt: ceiling });
