@@ -750,14 +750,23 @@ let go. With more than one replica on one database, a replica can take up to
 ten minutes to notice that another replica scheduled something for an org it
 had let go.
 
-## Postgres (Neon or Docker)
+## Postgres (Supabase, Neon or Docker)
 
-Orchestrator state and pg-boss jobs use one Postgres via `DATABASE_URL` (Neon hosted, or local Docker). Redis is not required.
+Orchestrator state and pg-boss jobs use one Postgres via `DATABASE_URL` (Supabase, Neon, or local Docker). Redis is not required.
 
 ```bash
 # Local
 docker compose up -d
 export DATABASE_URL=postgres://lacrew:lacrew@localhost:5432/lacrew
+
+# Or local Supabase Postgres (needs the Supabase CLI + Docker; config in supabase/)
+# pnpm db:supabase
+# export DATABASE_URL=postgres://postgres:postgres@127.0.0.1:54322/postgres
+
+# Or a hosted Supabase project: Project Settings → Database → Connection string
+# (use the session pooler or direct string; the transaction pooler works too —
+# the client already disables prepared statements)
+# export DATABASE_URL=postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres
 
 # Or paste a Neon connection string (same env var)
 # export DATABASE_URL=postgresql://user:pass@ep-….neon.tech/neondb?sslmode=require
