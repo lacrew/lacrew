@@ -217,6 +217,14 @@ when the intent was created:
   how such an intent is closed. Reactivating the agent makes it approvable
   again.
 
+**Who holds the approver key.** `resolve` is authorised by `msg.sender`
+alone, so whoever holds a manager node's key holds that manager's approval
+authority up to its policy stack. When an off-chain orchestrator signs for
+AI-manager seats, its keyring is part of the trust boundary: a compromised
+orchestrator can approve up to the manager tier, though never past it, and
+never as a root whose key it does not hold (`SECURITY.md`, "The orchestrator
+keyring is a trust boundary").
+
 Session gating: `propose` requires a valid `SessionRegistry` key for
 `agent`, with `value <= maxValue` and, when pinned, `target == allowedTarget`.
 
@@ -318,7 +326,9 @@ exposed.
 ## 7. SessionRegistry — bounded, expiring authority
 
 Agents boot with ephemeral keys scoped to their policy; orchestrator
-compromise leaks bounded, expiring authority — never the treasury.
+compromise leaks bounded, expiring authority — never the treasury. Session keys
+bound **workers**; manager seats whose keys the orchestrator holds are bounded
+by their policy stack instead (§5, "Who holds the approver key").
 
 ```solidity
 function issue(address agent, address key, uint64 expiresAt, bytes32 scopesHash,

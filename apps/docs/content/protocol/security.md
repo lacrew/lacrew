@@ -8,12 +8,14 @@ Users do not buy composability. They buy **"my agents cannot rug me."**
 
 ## Threat → intended bound
 
-| Threat                   | Intended blast radius                                                  | Code today                                                                                                                 |
-| ------------------------ | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| Compromised agent        | Remaining streamed allowance on whitelisted targets; escalations climb | Policy + router + treasury spend path                                                                                      |
-| Compromised orchestrator | Scoped expiring session keys only                                      | `SessionRegistry` + ephemeral EOAs; `propose` gated by `isKeyValid` + `maxValue` + optional `allowedTarget`; AA still TODO |
-| Compromised quorum       | High-tier timelock + human veto                                        | Timelock + `veto` on `GovernanceModule`                                                                                    |
-| Compromised root         | Out of protocol scope                                                  | Multi-human roots first-class (design)                                                                                     |
+| Threat                   | Intended blast radius                                                                               | Code today                                                                                                                 |
+| ------------------------ | --------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| Compromised agent        | Remaining streamed allowance on whitelisted targets; escalations climb                              | Policy + router + treasury spend path                                                                                      |
+| Compromised orchestrator | Scoped expiring session keys, plus manager-tier approvals for every manager seat whose key it holds | `SessionRegistry` + ephemeral EOAs; `propose` gated by `isKeyValid` + `maxValue` + optional `allowedTarget`; AA still TODO |
+| Compromised quorum       | High-tier timelock + human veto                                                                     | Timelock + `veto` on `GovernanceModule`                                                                                    |
+| Compromised root         | Out of protocol scope                                                                               | Multi-human roots first-class (design)                                                                                     |
+
+The orchestrator signs `resolve` for AI-manager seats, so its keyring — not the worker sandbox — is the boundary that matters: owning the orchestrator host lets an attacker approve escalations up to each held manager's policy stack, never past it, and never as a passkey-Safe root. Size manager caps for one detection window, and keep high-value manager seats out of the keyring. Full breakdown in the repo's `SECURITY.md`.
 
 ## Non-custodial cloud
 
