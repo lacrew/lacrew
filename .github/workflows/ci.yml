@@ -152,7 +152,8 @@ jobs:
       - uses: actions/checkout@v7
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned to the CLI that generated supabase/config.toml; v3 renamed keys.
+          version: 2.72.7
       # Postgres only — no auth/storage/studio containers. `db start` blocks
       # until the database is healthy, so the first query cannot race startup.
       - run: supabase db start
