@@ -56,8 +56,6 @@ export const NOT_SIMULATED: Record<string, string> = {
   "Treasury.AlreadyPaused": "Raised only by pause(), which is not simulated.",
   "Treasury.NotPaused": "Raised only by unpause(), which is not simulated.",
   "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
-  "EscalationRouter.ReentrancyGuardReentrantCall":
-    "OpenZeppelin ReentrancyGuard on propose/resolve; raised only when a call target re-enters the router, which the sandbox kernel does not model (its targets are not contracts that can call back). Covered by RouterReentrancy.t.sol.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
   "OrgRegistry.TooManyChildren":
@@ -73,7 +71,7 @@ export const NOT_SIMULATED: Record<string, string> = {
   "EscalationRouter.SafeERC20FailedOperation":
     "SafeERC20 guard on the router's approvals and transfers, for tokens that return false. MockUSDC never does.",
   "EscalationRouter.ReentrancyGuardReentrantCall":
-    "A settlement target calling back into the router. The router's own call swallows the revert (callOk false), and no simulated contract calls the router back; the Foundry suite covers it.",
+    "OpenZeppelin ReentrancyGuard on propose/resolve, raised when a call target re-enters the router. The sandbox kernel does not model callbacks (its targets cannot call back), and a settlement target's own call swallows the revert (callOk false). Covered by RouterReentrancy.t.sol and PullSettlement.t.sol.",
 };
 
 /**
