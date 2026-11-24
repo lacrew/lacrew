@@ -34,9 +34,14 @@ Phase 0 — scaffolding and spec. Contracts and packages contain mock / stub imp
 pnpm install
 pnpm build
 
-# Mock orchestrator only (no chain required) — http://127.0.0.1:8788
-pnpm dev
+# Sandbox orchestrator (simulated, no chain required) — http://127.0.0.1:8788
+pnpm dev:sandbox
 ```
+
+`pnpm dev` alone starts the orchestrator in chain mode: without `ANVIL_RPC` +
+`PRIVATE_KEY` it answers `mode: "unavailable"` on `/health` and 503 on every
+data route. Use `pnpm dev:sandbox` to try it without a chain, or the Anvil
+loop below for onchain enforcement.
 
 ### Optional Anvil loop (indexer / onchain SDK)
 
@@ -63,7 +68,7 @@ pnpm --filter @lacrew/orchestrator dev
 pnpm dev:indexer
 ```
 
-Without `ANVIL_RPC` + `PRIVATE_KEY`, the orchestrator stays on the in-memory mock client.
+Without `ANVIL_RPC` + `PRIVATE_KEY` (and without `LACREW_MODE=sandbox`), the orchestrator reports `mode: "unavailable"` and answers 503.
 
 See [apps/docs/content/self-host.md](./apps/docs/content/self-host.md) for the full loop.
 

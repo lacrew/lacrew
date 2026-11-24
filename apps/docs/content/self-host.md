@@ -100,24 +100,26 @@ git checkout -- contracts/deployments packages/core/deployments packages/core/sr
 
 Remove the override block from `.env` when you return to a fresh-Anvil deploy.
 
-## Mock-only quick start (no chain)
+## No-chain quick start (sandbox)
+
+There is no in-memory mock client any more. Without `ANVIL_RPC` + `PRIVATE_KEY`
+the orchestrator starts but reports `mode: "unavailable"` on `/health` and
+answers 503 (`chain_unavailable` / `no_rpc`) on every data route. To try the
+product without a chain, run the simulator — see
+[Sandbox mode](#sandbox-mode-no-chain-simulated):
 
 ```bash
 pnpm install
 pnpm build
 
-pnpm --filter @lacrew/cli exec tsx src/index.ts org
-pnpm --filter @lacrew/cli exec tsx src/index.ts tick
-
-# Orchestrator HTTP (:8788)
-pnpm --filter @lacrew/orchestrator dev
+pnpm dev:sandbox        # orchestrator on :8788, LACREW_MODE=sandbox
 # GET /health  POST /boot  POST /tick  GET /intents  GET /org
 ```
 
 ### Read surface (chain-truth endpoints)
 
-Every read answers from the chain (or the persisted trail) — mock mode serves
-`[]`, never fixtures; the unavailable app answers 503, never an empty org:
+Every read answers from the chain (or the persisted trail) — never fixtures; the
+unavailable app answers 503, never an empty org:
 
 | Endpoint                 | What it reads                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -316,7 +318,7 @@ again changes nothing.
 | 400    | `invalid_payer`     | Not one of the three payers a hash can stand for                 |
 | 400    | `invalid_agent`     | `agent` is not an address                                        |
 | 404    | `receipt_not_found` | No receipt on this chain: not mined yet, or another chain's hash |
-| 409    | `no_chain`          | This orchestrator is running in mock mode                        |
+| 409    | `no_chain`          | This orchestrator has no chain (sandbox or unavailable)          |
 | 422    | `unexpected_target` | Mined, but sent to nothing this deployment owns                  |
 
 From the CLI, any command that writes takes `--report-gas` (or
@@ -1262,7 +1264,7 @@ _not_, are in [Crew blueprints](./crews.md#naming-the-seats).
 `pnpm golden-path` goes further: it stands the whole stack up on Anvil, hires
 seats through real governance proposals, registers the `github` preset against a
 local stand-in host, and asserts the checklist clears — with the runtime
-asserted `onchain` first, so a green result cannot come from mock mode.
+asserted `onchain` first, so a green result cannot come from the sandbox.
 
 Four blueprints are certified, and they are four different setup burdens — run
 the one that matches what you have:
@@ -1471,7 +1473,7 @@ docker run --rm -p 8788:8788 lacrew-orchestrator
 
 | Symptom                                          | Check                                                                                                                                                                                     |
 | ------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /health` → `mode: "mock"`                   | Set `ANVIL_RPC` + `PRIVATE_KEY`; ensure Anvil is up and `31337.json` exists                                                                                                               |
+| `GET /health` → `mode: "unavailable"`            | Set `ANVIL_RPC` + `PRIVATE_KEY` (Anvil up, `31337.json` present), or run `pnpm dev:sandbox` for no chain                                                                                  |
 | `queue.provider` not `pg-boss`                   | `DATABASE_URL` unset or Postgres down; `pnpm db:up` then migrate                                                                                                                          |
 | `EADDRINUSE :8788`                               | Another orchestrator still running — kill the old process after `tsx` reloads                                                                                                             |
 | Propose reverts / no session                     | `POST /boot` first; confirm SessionRegistry grants for the worker                                                                                                                         |
