@@ -120,6 +120,8 @@ contract OrgRegistry is IOrgRegistry {
 
         address[] storage kids = _children[oldRoot];
         uint256 kidCount = kids.length;
+        // The promoted peer may already have reports; the MAX_CHILDREN cap holds after the move too.
+        if (_children[newRoot].length + kidCount > MAX_CHILDREN) revert TooManyChildren(newRoot);
         for (uint256 i = 0; i < kidCount; i++) {
             address child = kids[i];
             _nodes[child].parent = newRoot;

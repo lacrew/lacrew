@@ -8,6 +8,9 @@ import type { Ctx } from "./world.js";
 
 const CONTRACT = "OrgRegistry";
 
+/** `OrgRegistry.MAX_CHILDREN`: the per-node fan-out cap, which rotation must also respect. */
+const MAX_CHILDREN = 100;
+
 /** `IOrgRegistry.NodeKind`, by ABI value. */
 export const NodeKind = { HumanRoot: 0, ManagerAgent: 1, WorkerAgent: 2 } as const;
 
@@ -120,7 +123,11 @@ export function rotateRoot(ctx: Ctx, newRoot_: Address): void {
     });
   }
 
-  for (const child of state.children[oldRoot] ?? []) {
+  const kids = state.children[oldRoot] ?? [];
+  if (childrenAt(state, newRoot).length + kids.length > MAX_CHILDREN) {
+    throw new SimRevert("TooManyChildren", { parent: newRoot });
+  }
+  for (const child of kids) {
     state.nodes[child] = { ...nodeAt(state, child), parent: newRoot };
     childrenAt(state, newRoot).push(child);
     emit(ctx, registry, CONTRACT, "NodeReparented", {

@@ -37,7 +37,7 @@ contract RootRotationTest is Test {
 
     function setUp() public {
         registry = new OrgRegistry(root);
-        sessions = new SessionRegistry(root);
+        sessions = new SessionRegistry(root, address(registry));
         gov = new GovernanceModule(root, 2);
 
         vm.startPrank(root);
@@ -256,7 +256,7 @@ contract RootRotationTest is Test {
 
     function test_rotationFailingOnAnyContractRevertsAsAWhole() public {
         // A rooted contract the module does not govern refuses, so nothing moves.
-        SessionRegistry ungoverned = new SessionRegistry(root);
+        SessionRegistry ungoverned = new SessionRegistry(root, address(registry));
         address[] memory r = new address[](2);
         r[0] = address(registry);
         r[1] = address(ungoverned);
@@ -292,6 +292,23 @@ contract RootRotationTest is Test {
         assertEq(tree.getNode(manager).parent, fresh);
     }
 
+    function test_registryRefusesARotationThatOverfillsThePromotedRoot() public {
+        // #624 caps every node at MAX_CHILDREN. Promoting a peer that already has a full
+        // set of reports would take the old root's remaining child past that cap.
+        OrgRegistry tree = new OrgRegistry(root);
+        address peer = makeAddr("peer");
+        vm.startPrank(root);
+        tree.addNode(peer, IOrgRegistry.NodeKind.HumanRoot, root);
+        tree.addNode(manager, IOrgRegistry.NodeKind.ManagerAgent, root);
+        for (uint160 i = 0; i < 100; i++) {
+            tree.addNode(address(uint160(0x10000) + i), IOrgRegistry.NodeKind.WorkerAgent, peer);
+        }
+        vm.expectRevert(abi.encodeWithSelector(OrgRegistry.TooManyChildren.selector, peer));
+        tree.rotateRoot(peer);
+        vm.stopPrank();
+        assertEq(tree.root(), root);
+    }
+
     // ——— SessionRegistry governor ———
 
     function test_governorReplacesACompromisedIssuer() public {
@@ -317,7 +334,7 @@ contract RootRotationTest is Test {
     }
 
     function test_sessionGovernorBinding() public {
-        SessionRegistry s = new SessionRegistry(root);
+        SessionRegistry s = new SessionRegistry(root, address(registry));
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(SessionRegistry.NotAuthorized.selector, stranger));
         s.setGovernor(stranger);
