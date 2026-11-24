@@ -25,12 +25,64 @@ Docs that describe ERC-4337 / passkey AA roots are **design targets**, not curre
 
 ## Threat model (intended)
 
-| Threat                   | Intended bound                                                                  |
-| ------------------------ | ------------------------------------------------------------------------------- |
-| Compromised agent        | Remaining streamed allowance on whitelisted targets; escalations climb the tree |
-| Compromised orchestrator | Should only leak short-lived session keys — never treasury custody              |
-| Compromised quorum       | High-tier timelock + veto from any funded human seat                            |
-| Compromised root         | Bounded by the other human seats (below); still holds the wallet in v1          |
+| Threat                   | Intended bound                                                                                                          |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| Compromised agent        | Remaining streamed allowance on whitelisted targets; escalations climb the tree                                         |
+| Compromised orchestrator | Session keys **plus every manager seat it holds a key for** (below) — never a passkey-Safe root, never treasury custody |
+| Compromised quorum       | High-tier timelock + veto from any funded human seat                                                                    |
+| Compromised root         | Bounded by the other human seats (below); still holds the wallet in v1                                                  |
+
+### The orchestrator keyring is a trust boundary
+
+"The orchestrator only holds session keys" is true of **workers**, not of
+**AI-manager seats**. A manager approves an escalated intent by sending
+`EscalationRouter.resolve` from its own node address (`SPEC.md §5`), and the
+reference orchestrator signs that call itself, from its keyring:
+
+| Key the process may hold | Env                         | What it signs                                                          |
+| ------------------------ | --------------------------- | ---------------------------------------------------------------------- |
+| Main account             | `LACREW_PRIVATE_KEY`        | `propose`, bootstrap/demo writes; `resolve` when no manager key is set |
+| Manager seat             | `MANAGER_PRIVATE_KEY`       | `resolve` for intents awaiting that manager; its governance vote       |
+| Session issuer           | `LACREW_ISSUER_PRIVATE_KEY` | `SessionRegistry.issue` / `revoke`                                     |
+
+So the boundary an attacker has to cross is **the orchestrator host and its
+secrets**, not a worker's sandbox. Compromising a worker buys that worker's
+session key. Compromising the orchestrator buys every key above, and with them:
+
+| A stolen orchestrator keyring can                                                                                        | It cannot                                                                                                                  |
+| ------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| Approve any intent awaiting a manager seat it holds, up to **that manager's own policy stack** (`resolve` re-checks it)  | Approve past the manager's bounds — over them the intent climbs toward the human root                                      |
+| Propose as its workers, then approve its own proposals at manager depth — a self-dealing loop capped by the manager tier | Resolve as a passkey-Safe root: that seat signs only through the Safe's own `execTransaction`, with no key in this process |
+| Mint session keys through the issuer role, within `maxIssuerTtl` (every issue emits `SessionIssued`)                     | Move treasury balance directly, or pass a high-tier proposal (agent yes-weight never satisfies high tier; humans can veto) |
+| Cast the manager seat's governance vote on low-tier proposals                                                            | Survive the root revoking its sessions or governance removing the manager seat                                             |
+
+**Blast radius, stated plainly:** up to the manager tier's remaining bounds,
+per manager seat whose key the orchestrator holds, until a human notices and
+revokes. Escalation still works as designed above that line — the passkey root
+is outside the boundary — which is why the bound is the manager's policy and
+not the treasury.
+
+Two consequences for operators:
+
+1. **The manager's policy stack is the real ceiling on an orchestrator
+   compromise.** Size manager spend caps and rate limits as "what we would lose
+   if the orchestrator host were owned for one detection window", not as a
+   convenience threshold.
+2. **High-value manager seats should not live in the orchestrator's keyring.**
+   A manager seat can be any address. Holding it in a Safe (passkey or
+   multi-signer) moves its approvals outside the boundary, at the cost of a
+   human-speed signature for every intent that reaches it. The orchestrator's
+   Safe relay path (`execTransaction` for `resolve`) ships today for the
+   **root** seat only; using it for manager seats is a design target, not a
+   current guarantee. Until then, an org that wants a manager outside the
+   keyring runs that manager's key in a separate signer and leaves
+   `MANAGER_PRIVATE_KEY` unset.
+
+The cloud orchestrator is the same package under the same boundary: a manager
+key held by the hosted orchestrator is a key the hosted operator could sign
+with. Root custody never enters it — that is the non-custodial claim — but
+manager-tier approvals do, by design, when the manager seat is an AI agent the
+cloud runs.
 
 ### Two humans: what a compromise of one actually costs
 
