@@ -24,7 +24,15 @@ import {
   crewOrg,
 } from "./testkit.test.js";
 import * as token from "./token.js";
-import { MAX_UINT256, ONE_DAY, SimRevert, ZERO_ADDRESS, type Address, type Hex } from "./types.js";
+import {
+  EVM_REVERT,
+  MAX_UINT256,
+  ONE_DAY,
+  SimRevert,
+  ZERO_ADDRESS,
+  type Address,
+  type Hex,
+} from "./types.js";
 import { allocateAddress, inertEnv, type Ctx, type World } from "./world.js";
 
 const HOUR = 3_600n;
@@ -142,7 +150,7 @@ describe("kernel EscalationRouter: propose", () => {
     assert.deepEqual(sim.eventNames(mark), ["ActionExecuted"]);
   });
 
-  it("calls the target with the intent's calldata and reports whether it succeeded", () => {
+  it("calls the target with the intent's calldata and reverts the action when it fails", () => {
     const sim = crewOrg();
     const seen: Array<{ sender: Address; target: Address; data: Hex }> = [];
     sim.env = {
@@ -162,11 +170,27 @@ describe("kernel EscalationRouter: propose", () => {
     ]);
     assert.equal(sim.lastEvent("ActionExecuted").args.callOk, true);
 
-    sim.send(WORKER, propose(10n * USDC, TARGET, "0xdead"));
-    assert.equal(sim.lastEvent("ActionExecuted").args.callOk, false);
-    // Neither call pulled anything, so neither cost the agent anything.
+    // A failing call reverts the whole action with the target's error: the
+    // spend is rolled back with it, so no funds reach a target that never acted.
+    const mark = sim.events.length;
+    sim.reverts("Nope", WORKER, propose(10n * USDC, TARGET, "0xdead"));
+    assert.equal(sim.events.length, mark);
+    // The successful call pulled nothing, so it cost the agent nothing either.
     assert.equal(allowanceOf(sim, WORKER), 200n * USDC);
     assert.equal(sim.world.treasury.totalReserved, 200n * USDC);
+  });
+
+  it("reports a call that reverts without data as ActionCallFailed", () => {
+    const sim = crewOrg();
+    sim.env = {
+      ...inertEnv,
+      dispatch() {
+        throw new SimRevert(EVM_REVERT);
+      },
+    };
+    const err = sim.reverts("ActionCallFailed", WORKER, propose(10n * USDC, TARGET, "0x1234"));
+    assert.deepEqual(err.args, { target: TARGET });
+    assert.equal(allowanceOf(sim, WORKER), 200n * USDC);
   });
 });
 
@@ -205,13 +229,15 @@ describe("kernel EscalationRouter: pull settlement", () => {
     assert.equal(allowance(sim.world.addresses.treasury), 0n);
   });
 
-  it("a target cannot pull more than the value", () => {
+  it("a target cannot pull more than the value: the action reverts", () => {
     const sim = crewOrg();
     sim.env = pulling(11n * USDC);
-    sim.send(WORKER, propose(10n * USDC, TARGET, "0x1234"));
-    assert.equal(sim.lastEvent("ActionExecuted").args.callOk, false);
+    const mark = sim.events.length;
+    sim.reverts("ERC20InsufficientAllowance", WORKER, propose(10n * USDC, TARGET, "0x1234"));
+    assert.equal(sim.events.length, mark);
     assert.equal(balanceOf(sim, TARGET), 0n);
     assert.equal(allowanceOf(sim, WORKER), 200n * USDC);
+    assert.equal(sim.world.treasury.totalReserved, 200n * USDC);
   });
 
   it("a payment without calldata is still pushed", () => {
