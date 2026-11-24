@@ -53,7 +53,7 @@ have run unchanged on a second chain.
 These are gaps in the repo today that make a public deployment unsafe or unrepeatable. They're
 tracked as follow-ups in PRD F0.8 / F1.1 / F1.4.
 
-1. **Split the deploy script.** `DeployMockOrg.s.sol` deploys `MockUSDC`, seeds a manager, a
+1. [x] **Split the deploy script.** `DeployMockOrg.s.sol` deploys `MockUSDC`, seeds a manager, a
    worker, an x402 target and a funded treasury. That's right for a demo and wrong for a release.
    Add a production script (e.g. `DeployOrg.s.sol` plus `DeployProtocol.s.sol` for
    `MarketplacePayments`) that:
@@ -66,28 +66,34 @@ tracked as follow-ups in PRD F0.8 / F1.1 / F1.4.
      governor) explicitly, with **no `msg.sender` fallback** off Anvil.
    - ends with **post-condition assertions** in the same script run, so a half-wired deploy
      reverts instead of being published (see §5).
-2. **Close the deployer's leftover authority.** `WhitelistPolicy` and `SpendCapPolicy` keep
+   **Done:** `1ddd997` adds `DeployOrg.s.sol`, `DeployProtocol.s.sol` and `DeployConfig.sol`: mock-chain allowlist (31337, 11155111, 84532), Base pinned to canonical USDC, explicit roles, post-condition checks in the same run. `DeployOrg` needs the broadcaster to be `HUMAN_ROOT` (the registry only lets the root bind its governor); rotate the root to a Safe afterwards with `rotateRoot`.
+2. [x] **Close the deployer's leftover authority.** `WhitelistPolicy` and `SpendCapPolicy` keep
    `admin` (the deployer) as a **permanent co-admin** next to the governor. Before an audit, admin
    should be dropped (set to zero) when `setGovernor` binds, the same way `Treasury` and
    `EscalationRouter` stop honouring `deployer` once a governor is set. Otherwise whoever ran the
    deploy keeps the power to widen the whitelist and raise caps forever.
-3. **Resolve the open F1.1 enforcement items** the audit would otherwise rediscover: passed
+   **Done:** `a1a7261` (`setGovernor` zeroes `admin` on `WhitelistPolicy` and `SpendCapPolicy`; `RateLimitPolicy` admin is inert once `setRecorder` locks).
+3. [x] **Resolve the open F1.1 enforcement items** the audit would otherwise rediscover: passed
    proposals with no execution expiry; a re-added agent address reviving its old pending intents;
    governance tier chosen by the proposer for most payloads.
-4. **Add the missing RPC/explorer entries.** `contracts/foundry.toml` only lists `base_sepolia`
+   **Done:** governance tier gate `132b94f` (#628); intent expiry and node generations `d618058` (#649); execution expiry for passed proposals `ba06850` (`EXECUTION_WINDOW`, 14 days).
+4. [x] **Add the missing RPC/explorer entries.** `contracts/foundry.toml` only lists `base_sepolia`
    and `base`. Add `sepolia` (and an Etherscan v2 key) so `forge script --verify` works on the
    PRD's first testnet without hand-passed flags.
-5. **Make builds reproducible.** `solc_version = 0.8.28`, `via_ir = true` and
+   **Done:** `3d2c8f2` adds `sepolia` and Etherscan v2 entries (`ETHERSCAN_API_KEY`) for Sepolia, Base Sepolia and Base.
+5. [x] **Make builds reproducible.** `solc_version = 0.8.28`, `via_ir = true` and
    `optimizer_runs = 200` are pinned in `foundry.toml`. Also pin forge-std and OpenZeppelin by tag
    (CI already does `forge-std@v1.16.2`, `openzeppelin-contracts@v5.3.0`) and record the Foundry
    version in each deployment record. `via_ir` output can change across compiler patch versions,
    and verification fails silently if the settings drift.
-6. **Decide the emergency story before the audit.** There's no `pause` and no root withdrawal.
-   Today, containing an incident means the root deactivates nodes (`OrgRegistry.setActive`),
+   **Done:** `3d2c8f2` pins Foundry (CI `v1.9.0`), `evm_version`, and the lib tags in `script/install-libs.sh`; `script/build-record.sh` prints the toolchain record for each deployment.
+6. [x] **Decide the emergency story before the audit.** There's no root withdrawal.
+   Containing an incident means the root deactivates nodes (`OrgRegistry.setActive`),
    revokes session keys (`SessionRegistry`), and zeroes grants. Recovering funds means the root
    streaming allowance to itself and spending it through the router. Either write that down and
    rehearse it on testnet (stage 2), or add an explicit root-only exit and have it audited. Don't
    decide this after mainnet.
+   **Done:** decision and steps in [incident-playbook.md](./incident-playbook.md) (`7c60010`); code is the pause `05e4849` and High-tier `withdraw` `bfe5750`. Live rehearsal stays in stages 0 and 2.
 
 ## 4. Keys and roles
 
@@ -209,8 +215,8 @@ loop, but runs the same script with the same assertions.
 - [ ] Audit report published; every High/Medium resolved or accepted in writing
 - [ ] Deployed tag equals the audited commit (+ auditor-reviewed fixes only)
 - [ ] Bug bounty live
-- [ ] Production script refuses mocks on chain 8453; asset is canonical USDC
-- [ ] Policy `admin` drops to zero on governor bind; the deployer holds no role after deploy
+- [x] Production script refuses mocks on chain 8453; asset is canonical USDC
+- [x] Policy `admin` drops to zero on governor bind; the deployer holds no role after deploy
 - [ ] Ethereum Sepolia and Base Sepolia both deployed from the same tag, smoke flow green, soak clean
 - [ ] Fork rehearsal of a version migration moved the full treasury
 - [ ] Incident playbook written and rehearsed on testnet
