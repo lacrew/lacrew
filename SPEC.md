@@ -152,8 +152,19 @@ function recipients() external view returns (address[] memory);
 ```
 
 Events: `GrantUpdated`, `EpochRun(epoch, recipientCount)`. The treasury
-implements `ITreasurySpender.spendAllowance(node, amount, to)` for the
-router's finalize path.
+implements `ITreasurySpender` for the router's finalize path (§5,
+"Settlement"):
+
+```solidity
+function token() external view returns (IERC20);
+function spendAllowance(address node, uint256 amount, address to) external; // payment
+function spendAllowance(address node, uint256 amount) external;             // pull, to the spender
+function refundAllowance(address node, uint256 amount) external;            // pull, unpulled rest
+```
+
+`refundAllowance` is spender-only and pulls the tokens back with
+`transferFrom` before it restores the allowance (`AllowanceRefunded`), so a
+refund never reserves more than actually arrived.
 
 `Treasury.streamAllowance` is called by the governor or the bound streamer.
 The deployer may stream directly only while neither is bound: binding a
@@ -178,6 +189,29 @@ escalations resolve only in their own asset's router.
 > asset. Deploy a separate stack per asset; never share one across assets
 > with different decimals.
 
+### 4.2 Asset assumptions
+
+The treasury's bookkeeping (`totalReserved` against `balanceOf`) and the
+marketplace's (`totalOwed` against `balanceOf`) hold only for a token that
+moves exactly the amount asked and changes balances only through transfers.
+
+- **Fee-on-transfer tokens are refused.** Every movement into or out of
+  `Treasury` and `MarketplacePayments` is measured; a token that delivers
+  less than asked reverts with `TransferAmountMismatch(expected, actual)`.
+- **Rebasing tokens are unsupported.** A balance change outside a transfer
+  cannot be caught when it happens. `Treasury.shortfall()` reports how far the
+  balance has fallen below `totalReserved`; non-zero means the last spenders'
+  allowances are unbacked.
+- **Issuer blocklists can freeze a stack.** USDC and USDT can blocklist an
+  address. A blocklisted `Treasury` cannot move its balance at all, and a
+  blocklisted `EscalationRouter` cannot settle calls (it holds the value for
+  the length of a pull settlement). Nothing onchain routes around an issuer
+  freeze. What limits the damage is the per-asset split of §4.1: a freeze
+  stops one asset stack, not the org, and a fresh stack can be deployed and
+  funded over the same `OrgRegistry`. A blocklisted _payee_ only fails its own
+  payment: the settling `propose` or `resolve` reverts, and an escalated
+  intent stays pending until it is rejected.
+
 ## 5. EscalationRouter — the enforcement path
 
 Agents act by proposing intents. The router checks the agent's session key,
@@ -195,8 +229,8 @@ Rate recording resolves per node: `rateRecorderOf[node]` when bound, the
 global `rateRecorder` otherwise; both `propose`-time escalations and
 finalized actions are charged against the window.
 
-- **ALLOW** → the action finalizes immediately: allowance spent, `target`
-  called, `ActionExecuted` emitted.
+- **ALLOW** → the action finalizes immediately: allowance settled (below),
+  `target` called, `ActionExecuted` emitted.
 - **ESCALATE** → a pending intent is created awaiting the agent's parent.
   `resolve(id, true)` from the awaiting approver re-checks the approver's own
   policy stack: within bounds it finalizes; over bounds the intent climbs
@@ -229,6 +263,31 @@ AI-manager seats, its keyring is part of the trust boundary: a compromised
 orchestrator can approve up to the manager tier, though never past it, and
 never as a root whose key it does not hold (`SECURITY.md`, "The orchestrator
 keyring is a trust boundary").
+
+**Settlement.** How an action's `value` leaves the treasury depends on
+whether it carries calldata:
+
+- **Payment** (`value > 0`, empty `data`): the treasury transfers `value`
+  to `target`. Nothing is called.
+- **Call** (`value > 0`, non-empty `data`): pull-based. The router takes
+  `value` from the treasury, approves `target` for exactly `value`, calls it,
+  revokes the approval, and hands whatever `target` did not pull back to the
+  agent's allowance (`refundAllowance`, `SettlementReturned`). Tokens
+  `target` sends back to the router count as unpulled. A DEX or any
+  approve/`transferFrom` protocol works unchanged; a contract that ignores
+  the tokens, or a call that fails, costs the agent nothing.
+
+`ActionExecuted.value` and the value recorder (§2) see what the action
+actually cost: the full value for a payment, only what `target` kept for a
+call. The router never spends or refunds a balance it held before the
+settlement, and it is `nonReentrant` across `propose` and `resolve`, so a
+target cannot settle a second action from inside the first.
+
+The treasury's token is a protected target alongside the router, the
+treasury, the session registry and the recorders (`ProtectedTarget`): the
+router holds that token during a pull settlement, and a call aimed at the
+token would spend or approve it outside the settlement. The check applies to
+any action that carries value or calldata.
 
 Session gating: `propose` requires a valid `SessionRegistry` key for
 `agent`, with `value <= maxValue` and, when pinned, `target == allowedTarget`.
