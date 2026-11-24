@@ -2007,6 +2007,16 @@ export class OnchainLacrewClient implements ProtocolClient {
     })) as `0x${string}`;
   }
 
+  /** Current `SessionRegistry.humanRoot` (governance can rotate it). */
+  async getSessionRoot(): Promise<`0x${string}`> {
+    const addr = this.requireSessionRegistry();
+    return (await this.publicClient.readContract({
+      address: addr,
+      abi: sessionRegistryAbi,
+      functionName: "humanRoot",
+    })) as `0x${string}`;
+  }
+
   /** Current payroll epoch from an asset's EpochStreamer (0 if not deployed). */
   async getCurrentEpoch(asset?: string): Promise<number> {
     const addr = this.assetModule(asset, "epochStreamer");

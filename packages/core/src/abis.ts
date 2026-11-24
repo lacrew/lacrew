@@ -220,6 +220,19 @@ export const orgRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "rotateRoot",
+    "inputs": [
+      {
+        "name": "newRoot",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setActive",
     "inputs": [
       {
@@ -338,6 +351,25 @@ export const orgRegistryAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "RootRotated",
+    "inputs": [
+      {
+        "name": "oldRoot",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newRoot",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "CannotMutateRoot",
     "inputs": [
@@ -375,6 +407,17 @@ export const orgRegistryAbi = [
     "inputs": [
       {
         "name": "parent",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidRoot",
+    "inputs": [
+      {
+        "name": "account",
         "type": "address",
         "internalType": "address"
       }
@@ -2126,7 +2169,33 @@ export const governanceModuleAbi = [
   },
   {
     "type": "function",
+    "name": "ROTATE_ROOT_SELECTOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "SET_GOVERNOR_SELECTOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SET_ISSUER_SELECTOR",
     "inputs": [],
     "outputs": [
       {
@@ -2434,6 +2503,24 @@ export const governanceModuleAbi = [
         "name": "human",
         "type": "address",
         "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "rotateRoot",
+    "inputs": [
+      {
+        "name": "newRoot",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "rooted",
+        "type": "address[]",
+        "internalType": "address[]"
       }
     ],
     "outputs": [],
@@ -2782,6 +2869,25 @@ export const governanceModuleAbi = [
   },
   {
     "type": "event",
+    "name": "RootRotated",
+    "inputs": [
+      {
+        "name": "oldRoot",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newRoot",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TimingUpdated",
     "inputs": [
       {
@@ -3023,6 +3129,22 @@ export const governanceModuleAbi = [
         "name": "proposalId",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "RootAuthorityNotHighTier",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "RootIsAgentSeat",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },
@@ -5585,6 +5707,19 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "governor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "humanRoot",
     "inputs": [],
     "outputs": [
@@ -5997,6 +6132,19 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "rotateRoot",
+    "inputs": [
+      {
+        "name": "newRoot",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "sessions",
     "inputs": [
       {
@@ -6093,6 +6241,19 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "setGovernor",
+    "inputs": [
+      {
+        "name": "governor_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setIssuer",
     "inputs": [
       {
@@ -6156,6 +6317,19 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "event",
+    "name": "GovernorUpdated",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "IssuerUpdated",
     "inputs": [
       {
@@ -6176,6 +6350,25 @@ export const sessionRegistryAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "RootRotated",
+    "inputs": [
+      {
+        "name": "oldRoot",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "newRoot",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false

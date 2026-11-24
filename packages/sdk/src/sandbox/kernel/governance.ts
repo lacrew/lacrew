@@ -3,8 +3,11 @@
  * Mirrors `contracts/src/GovernanceModule.sol`.
  */
 
-import { emit, externalCall } from "./frame.js";
+import { asSender, emit, externalCall } from "./frame.js";
+import * as orgRegistry from "./orgRegistry.js";
+import * as sessionRegistry from "./sessionRegistry.js";
 import {
+  EVM_REVERT,
   SimRevert,
   ZERO_ADDRESS,
   addr,
@@ -29,6 +32,10 @@ export const MAX_TIMELOCK = 30n * 86_400n;
 
 /** `bytes4(keccak256("setGovernor(address)"))`. */
 export const SET_GOVERNOR_SELECTOR = "0xc42cf535";
+/** `bytes4(keccak256("rotateRoot(address)"))`. */
+export const ROTATE_ROOT_SELECTOR = "0x611ab368";
+/** `bytes4(keccak256("setIssuer(address)"))`. */
+export const SET_ISSUER_SELECTOR = "0x55cc4e57";
 
 export interface ProposalRecord {
   proposer: Address;
@@ -210,6 +217,39 @@ export function removeHuman(ctx: Ctx, human_: Address): void {
   emit(ctx, ctx.world.addresses.governanceModule, CONTRACT, "HumanRemoved", { human });
 }
 
+/**
+ * Rotate the root key here and on each of `rooted`. The old root's Human seat
+ * moves to `newRoot` (or is revoked when `newRoot` already holds one).
+ */
+export function rotateRoot(ctx: Ctx, newRoot_: Address, rooted: Address[]): void {
+  const state = ctx.world.governance;
+  const self = ctx.world.addresses.governanceModule;
+  const newRoot = addr(newRoot_);
+  authorizeSeatAdmin(ctx);
+  if (newRoot === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  const oldRoot = state.humanRoot;
+  const newRole = roleOf(state, newRoot);
+  if (newRole === SeatRole.Agent) throw new SimRevert("RootIsAgentSeat", { account: newRoot });
+  if (roleOf(state, oldRoot) === SeatRole.Human && newRoot !== oldRoot) {
+    const power = powerOf(state, oldRoot);
+    if (newRole === SeatRole.None) setSeat(ctx, newRoot, power, SeatRole.Human);
+    setSeat(ctx, oldRoot, 0n, SeatRole.None);
+  }
+  state.humanRoot = newRoot;
+  emit(ctx, self, CONTRACT, "RootRotated", { oldRoot, newRoot });
+  for (const target_ of rooted) {
+    // A typed call: a revert bubbles. The sandbox holds one OrgRegistry and one
+    // SessionRegistry; any other address has no `rotateRoot` (or no code), which
+    // the EVM answers with an empty revert.
+    const target = addr(target_);
+    const asGov = asSender(ctx, self);
+    if (target === ctx.world.addresses.orgRegistry) orgRegistry.rotateRoot(asGov, newRoot);
+    else if (target === ctx.world.addresses.sessionRegistry) {
+      sessionRegistry.rotateRoot(asGov, newRoot);
+    } else throw new SimRevert(EVM_REVERT);
+  }
+}
+
 /** An executed proposal, or the root while the org has no human seat to consult. */
 function authorizeSeatAdmin(ctx: Ctx): void {
   const state = ctx.world.governance;
@@ -313,12 +353,12 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
   const target = addr(target_);
   if (target === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
   if (target === self && tier !== Tier.High) throw new SimRevert("SelfTargetNotHighTier");
-  if (
-    tier !== Tier.High &&
-    byteLength(data) >= 4 &&
-    data.slice(0, 10).toLowerCase() === SET_GOVERNOR_SELECTOR
-  ) {
-    throw new SimRevert("GovernorTransferNotHighTier");
+  if (tier !== Tier.High && byteLength(data) >= 4) {
+    const selector = data.slice(0, 10).toLowerCase();
+    if (selector === SET_GOVERNOR_SELECTOR) throw new SimRevert("GovernorTransferNotHighTier");
+    if (selector === ROTATE_ROOT_SELECTOR || selector === SET_ISSUER_SELECTOR) {
+      throw new SimRevert("RootAuthorityNotHighTier");
+    }
   }
   const proposalId = state.nextProposalId++;
   const actionHash = ctx.env.actionHash(target, data);

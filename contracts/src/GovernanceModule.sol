@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
+/// @notice A contract whose root key GovernanceModule can rotate.
+interface IRootRotatable {
+    function rotateRoot(address newRoot) external;
+}
+
 /// @title GovernanceModule
 /// @notice Quorum voting for constitutional actions (hire/fire, budgets, policy upgrades).
 /// @dev Low tier: execute after all-seat quorum. High tier: human-seat quorum + timelock;
@@ -29,6 +34,13 @@ pragma solidity ^0.8.28;
 ///      does, the bootstrap of an org deployed with `rootPower_ = 0`. Governance that
 ///      revokes the root's seat revokes its veto and its parameter admin with it, so
 ///      "root" is a seat that can change hands, not a permanent key.
+///
+///      **Root rotation.** The root key itself is replaceable: `rotateRoot` moves it, its
+///      seat, and — in the same transaction — the root of every contract that names one
+///      (OrgRegistry, SessionRegistry), so a lost or compromised key is a High-tier
+///      proposal away from recovery rather than a redeploy. Any proposal that reaches a
+///      root rotation or a session issuer change on another contract is forced High tier
+///      too, alongside governor transfers.
 contract GovernanceModule {
     enum Tier {
         Low,
@@ -63,7 +75,8 @@ contract GovernanceModule {
         ProposalState state;
     }
 
-    address public immutable humanRoot;
+    /// @notice The org's root key. Changed only by `rotateRoot`.
+    address public humanRoot;
 
     uint256 public nextProposalId = 1;
     mapping(uint256 => Proposal) public proposals;
@@ -110,6 +123,14 @@ contract GovernanceModule {
     ///      this module, it is never Low tier — it always passes the human quorum, the
     ///      timelock, and the veto window.
     bytes4 public constant SET_GOVERNOR_SELECTOR = bytes4(keccak256("setGovernor(address)"));
+    /// @notice `rotateRoot(address)` — OrgRegistry's and SessionRegistry's root handover.
+    /// @dev Replacing the root moves the tree's top, the fallback resolve authority and
+    ///      session issuance, so a proposal calling it directly is High tier.
+    bytes4 public constant ROTATE_ROOT_SELECTOR = bytes4(keccak256("rotateRoot(address)"));
+    /// @notice `setIssuer(address)` — SessionRegistry's session-minting authority.
+    /// @dev Whoever is the issuer mints agent session keys, so naming one is High tier:
+    ///      agent seats must never be able to hand themselves issuance.
+    bytes4 public constant SET_ISSUER_SELECTOR = bytes4(keccak256("setIssuer(address)"));
 
     /// @notice `withdraw(address,uint256)` — Treasury's outflow to an arbitrary address.
     ///         Proposals carrying it are always High tier.
@@ -135,6 +156,7 @@ contract GovernanceModule {
     event QuorumHumanYesUpdated(uint256 quorumHumanYes);
     event TimingUpdated(uint256 votingPeriod, uint256 highTierTimelock);
     event UnanimityFastPathUpdated(bool enabled);
+    event RootRotated(address indexed oldRoot, address indexed newRoot);
 
     error ProposalNotActive(uint256 proposalId);
     error ProposalNotFound(uint256 proposalId);
@@ -158,6 +180,9 @@ contract GovernanceModule {
     error SelfTargetNotHighTier();
     error GovernorTransferNotHighTier();
     error WithdrawNotHighTier();
+    error RootAuthorityNotHighTier();
+    /// @dev A root is a human; an agent seat cannot be handed one.
+    error RootIsAgentSeat(address account);
 
     /// @dev Root acts directly; the module itself qualifies so an executed High-tier
     ///      proposal targeting this contract can retune parameters through governance.
@@ -269,6 +294,38 @@ contract GovernanceModule {
         emit VotingPowerUpdated(voter, power, role);
     }
 
+    /// @notice Rotate the org's root key to `newRoot` here and on each of `rooted`
+    ///         (OrgRegistry, SessionRegistry — any contract exposing `rotateRoot(address)`
+    ///         with this module as its governor). Governance only, so always High tier:
+    ///         the human quorum, the timelock and the veto window all apply.
+    /// @dev The old root's Human seat moves to `newRoot` with its weight; if `newRoot`
+    ///      already holds a Human seat (a partner being promoted), the old seat is simply
+    ///      revoked. Either way the retired key loses its vote, its veto and its direct
+    ///      admin in the same step it loses the root. Votes it already cast on open
+    ///      proposals stand; any remaining human can veto those.
+    ///
+    ///      Rotating every contract in one call keeps them from disagreeing about who
+    ///      the root is; a rotation that fails on any of them reverts as a whole.
+    ///      Before any human is seated the root itself may call this (the same
+    ///      bootstrap as `admitHuman`).
+    function rotateRoot(address newRoot, address[] calldata rooted) external {
+        _authorizeSeatAdmin();
+        if (newRoot == address(0)) revert ZeroAddress();
+        address oldRoot = humanRoot;
+        SeatRole newRole = seatRole[newRoot];
+        if (newRole == SeatRole.Agent) revert RootIsAgentSeat(newRoot);
+        if (seatRole[oldRoot] == SeatRole.Human && newRoot != oldRoot) {
+            uint256 power = votingPower[oldRoot];
+            if (newRole == SeatRole.None) _setSeat(newRoot, power, SeatRole.Human);
+            _setSeat(oldRoot, 0, SeatRole.None);
+        }
+        humanRoot = newRoot;
+        emit RootRotated(oldRoot, newRoot);
+        for (uint256 i = 0; i < rooted.length; i++) {
+            IRootRotatable(rooted[i]).rotateRoot(newRoot);
+        }
+    }
+
     /// @notice Update the all-seat yes quorum (low tier).
     function setQuorumYes(uint256 quorumYes_) external onlyRootOrGovernance {
         if (quorumYes_ == 0) revert ZeroQuorum();
@@ -333,8 +390,12 @@ contract GovernanceModule {
     ) external returns (uint256 proposalId) {
         if (target == address(0)) revert ZeroAddress();
         if (target == address(this) && tier != Tier.High) revert SelfTargetNotHighTier();
-        if (tier != Tier.High && data.length >= 4 && bytes4(data[:4]) == SET_GOVERNOR_SELECTOR) {
-            revert GovernorTransferNotHighTier();
+        if (tier != Tier.High && data.length >= 4) {
+            bytes4 selector = bytes4(data[:4]);
+            if (selector == SET_GOVERNOR_SELECTOR) revert GovernorTransferNotHighTier();
+            if (selector == ROTATE_ROOT_SELECTOR || selector == SET_ISSUER_SELECTOR) {
+                revert RootAuthorityNotHighTier();
+            }
         }
         if (tier != Tier.High && data.length >= 4 && bytes4(data[:4]) == WITHDRAW_SELECTOR) {
             revert WithdrawNotHighTier();

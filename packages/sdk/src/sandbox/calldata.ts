@@ -98,6 +98,7 @@ const ORG_REGISTRY: HandlerTable = {
   setActive: (ctx, [account, active]) => orgRegistry.setActive(ctx, account, active),
   removeNode: (ctx, [account]) => orgRegistry.removeNode(ctx, account),
   reparent: (ctx, [account, newParent]) => orgRegistry.reparent(ctx, account, newParent),
+  rotateRoot: (ctx, [newRoot]) => orgRegistry.rotateRoot(ctx, newRoot),
 };
 
 const TREASURY: HandlerTable = {
@@ -144,6 +145,9 @@ const ESCALATION_ROUTER: HandlerTable = {
 const SESSION_REGISTRY: HandlerTable = {
   issuer: (ctx) => ctx.world.sessionRegistry.issuer,
   humanRoot: (ctx) => ctx.world.sessionRegistry.humanRoot,
+  governor: (ctx) => ctx.world.sessionRegistry.governor ?? ZERO_ADDRESS,
+  setGovernor: (ctx, [governor]) => sessionRegistry.setGovernor(ctx, governor),
+  rotateRoot: (ctx, [newRoot]) => sessionRegistry.rotateRoot(ctx, newRoot),
   maxIssuerTtl: (ctx) => ctx.world.sessionRegistry.maxIssuerTtl,
   sessions: (ctx, [id]) => sessionRegistry.sessions(ctx, big(id)),
   rateLimits: (ctx, [id]) => sessionRegistry.rateLimits(ctx, big(id)),
@@ -201,6 +205,7 @@ const EPOCH_STREAMER: HandlerTable = {
 
 const GOVERNANCE: HandlerTable = {
   nextProposalId: (ctx) => ctx.world.governance.nextProposalId,
+  humanRoot: (ctx) => ctx.world.governance.humanRoot,
   proposals: (ctx, [id]) => governance.proposals(ctx, big(id)),
   noHumanVotes: (ctx, [id]) => governance.noHumanVotes(ctx, big(id)),
   hasVoted: (ctx, [id, voter]) => governance.hasVoted(ctx, big(id), voter),
@@ -212,6 +217,7 @@ const GOVERNANCE: HandlerTable = {
     governance.setVotingPower(ctx, voter, big(power), enumValue(role, 3)),
   admitHuman: (ctx, [human, power]) => governance.admitHuman(ctx, human, big(power)),
   removeHuman: (ctx, [human]) => governance.removeHuman(ctx, human),
+  rotateRoot: (ctx, [newRoot, rooted]) => governance.rotateRoot(ctx, newRoot, [...rooted]),
   setQuorumYes: (ctx, [q]) => governance.setQuorumYes(ctx, big(q)),
   setQuorumHumanYes: (ctx, [q]) => governance.setQuorumHumanYes(ctx, big(q)),
   setTiming: (ctx, [period, timelock]) => governance.setTiming(ctx, big(period), big(timelock)),

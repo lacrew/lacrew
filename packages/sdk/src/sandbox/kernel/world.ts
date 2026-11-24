@@ -302,7 +302,7 @@ export function genesis(params: GenesisParams): World {
 
 /**
  * Hand every contract's constitutional authority to the GovernanceModule: the
- * registry (by its root), the treasury, router and policies (by the deployer),
+ * registry and session registry (by the root), the treasury, router and policies (by the deployer),
  * and the streamer's grant schedule (by its operator).
  */
 export function bindGovernor(
@@ -321,6 +321,7 @@ export function bindGovernor(
     next = transact(next, { sender, at: params.at, env: params.env }, fn).world;
   };
   run(params.root, (ctx) => orgRegistry.setGovernor(ctx, gov));
+  run(params.root, (ctx) => sessionRegistry.setGovernor(ctx, gov));
   run(params.deployer, (ctx) => treasury.setGovernor(ctx, gov));
   run(params.deployer, (ctx) => escalationRouter.setGovernor(ctx, gov));
   run(params.operator, (ctx) => epochStreamer.setGovernor(ctx, gov));

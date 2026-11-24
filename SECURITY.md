@@ -124,6 +124,22 @@ governance can demote a root to an ordinary former member — but only while
 another human remains seated, and only with that root unable to veto the
 proposal, which in practice means with its cooperation.
 
+### Losing or rotating the root key
+
+The root address is replaceable onchain (`SPEC.md §6.2`). One High-tier
+`GovernanceModule.rotateRoot` proposal moves the root of the tree, of session
+admin and of the governance seat together, and with it the fallback resolve
+authority `EscalationRouter` reads from the tree. A **lost** root key is
+therefore recoverable by the other humans (or, for a solo org, by the root
+rotating to a new key while it still holds the old one). A **compromised** one
+is recoverable only if its holder does not veto the rotation: the veto above
+still applies, by design.
+
+Independently of rotation, governance can revoke any session and replace the
+session issuer (`SessionRegistry.setIssuer`, High tier) without the root's
+signature, so a compromised orchestrator issuer is not left in place waiting
+for the root.
+
 ## Reporting a vulnerability
 
 Please email **security@lacrew.xyz** (or open a private GitHub security advisory on this repo) with:

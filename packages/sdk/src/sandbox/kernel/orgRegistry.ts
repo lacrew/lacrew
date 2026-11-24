@@ -8,6 +8,9 @@ import type { Ctx } from "./world.js";
 
 const CONTRACT = "OrgRegistry";
 
+/** `OrgRegistry.MAX_CHILDREN`: the per-node fan-out cap, which rotation must also respect. */
+const MAX_CHILDREN = 100;
+
 /** `IOrgRegistry.NodeKind`, by ABI value. */
 export const NodeKind = { HumanRoot: 0, ManagerAgent: 1, WorkerAgent: 2 } as const;
 
@@ -80,6 +83,64 @@ export function setGovernor(ctx: Ctx, governor_: Address): void {
     throw new SimRevert("NotAuthorized", { caller: ctx.sender });
   }
   state.governor = governor;
+}
+
+/**
+ * Hand the root node to `newRoot`: a fresh address, or a `HumanRoot` child of
+ * the current root. The old root's node is removed and its reports move under
+ * `newRoot`. Governor-only once one is bound.
+ */
+export function rotateRoot(ctx: Ctx, newRoot_: Address): void {
+  const state = ctx.world.orgRegistry;
+  const newRoot = addr(newRoot_);
+  const registry = ctx.world.addresses.orgRegistry;
+  authorize(ctx);
+  if (newRoot === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  const oldRoot = state.root;
+  const promoted = nodeAt(state, newRoot);
+  if (promoted.account !== ZERO_ADDRESS) {
+    if (promoted.kind !== NodeKind.HumanRoot || promoted.parent !== oldRoot) {
+      throw new SimRevert("InvalidRoot", { account: newRoot });
+    }
+    removeFromParent(state, oldRoot, newRoot);
+    state.nodes[newRoot] = { ...promoted, parent: ZERO_ADDRESS, active: true };
+    emit(ctx, registry, CONTRACT, "NodeReparented", {
+      account: newRoot,
+      oldParent: oldRoot,
+      newParent: ZERO_ADDRESS,
+    });
+  } else {
+    state.nodes[newRoot] = {
+      account: newRoot,
+      kind: NodeKind.HumanRoot,
+      parent: ZERO_ADDRESS,
+      active: true,
+    };
+    emit(ctx, registry, CONTRACT, "NodeAdded", {
+      account: newRoot,
+      kind: NodeKind.HumanRoot,
+      parent: ZERO_ADDRESS,
+    });
+  }
+
+  const kids = state.children[oldRoot] ?? [];
+  if (childrenAt(state, newRoot).length + kids.length > MAX_CHILDREN) {
+    throw new SimRevert("TooManyChildren", { parent: newRoot });
+  }
+  for (const child of kids) {
+    state.nodes[child] = { ...nodeAt(state, child), parent: newRoot };
+    childrenAt(state, newRoot).push(child);
+    emit(ctx, registry, CONTRACT, "NodeReparented", {
+      account: child,
+      oldParent: oldRoot,
+      newParent: newRoot,
+    });
+  }
+  delete state.children[oldRoot];
+  delete state.nodes[oldRoot];
+  state.root = newRoot;
+  emit(ctx, registry, CONTRACT, "NodeRemoved", { account: oldRoot, formerParent: ZERO_ADDRESS });
+  emit(ctx, registry, CONTRACT, "RootRotated", { oldRoot, newRoot });
 }
 
 export function addNode(ctx: Ctx, account_: Address, kind: number, parent_: Address): void {

@@ -2,6 +2,7 @@ import type { Scenario } from "../scenario.js";
 import { governanceScenarios } from "./governance.js";
 import { policyScenarios } from "./policies.js";
 import { registryScenarios } from "./registry.js";
+import { rootRotationScenarios } from "./rootRotation.js";
 import { sessionScenarios } from "./sessions.js";
 import { spendScenarios } from "./spend.js";
 import { treasuryScenarios } from "./treasury.js";
@@ -14,4 +15,5 @@ export const SCENARIOS: Scenario[] = [
   ...treasuryScenarios,
   ...registryScenarios,
   ...governanceScenarios,
+  ...rootRotationScenarios,
 ];
