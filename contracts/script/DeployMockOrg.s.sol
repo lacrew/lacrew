@@ -142,7 +142,7 @@ contract DeployMockOrg is Script {
         d.epochStreamer.setGrant(worker, 200 * USDC);
         d.treasury.setStreamer(address(d.epochStreamer));
 
-        d.sessionRegistry = new SessionRegistry(humanRoot);
+        d.sessionRegistry = new SessionRegistry(humanRoot, address(d.registry));
         d.router.setSessionRegistry(address(d.sessionRegistry));
         // Let the router record proposals against a key's rate limit.
         d.sessionRegistry.setEscalationRouter(address(d.router));

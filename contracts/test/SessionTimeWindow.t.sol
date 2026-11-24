@@ -50,7 +50,7 @@ contract SessionTimeWindowTest is Test {
         PolicyStack stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
-        sessions = new SessionRegistry(root);
+        sessions = new SessionRegistry(root, address(registry));
         router.setSessionRegistry(address(sessions));
         allScopes = sessions.SCOPE_ALL();
     }

@@ -55,7 +55,7 @@ contract AuthorityHardeningTest is Test {
         router.setTreasury(address(treasury));
         router.setRateRecorder(address(rateLimit));
         rateLimit.setRecorder(address(router));
-        sessions = new SessionRegistry(root);
+        sessions = new SessionRegistry(root, address(registry));
         router.setSessionRegistry(address(sessions));
         gov = new GovernanceModule(root, 2);
 

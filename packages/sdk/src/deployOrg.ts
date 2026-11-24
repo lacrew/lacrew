@@ -226,7 +226,7 @@ export async function deployOrg(options: DeployOrgOptions): Promise<DeployedOrg>
     "SessionRegistry",
     sessionRegistryAbi,
     sessionRegistryBytecode,
-    [root],
+    [root, orgRegistry],
   );
   await send(escalationRouter, escalationRouterAbi, "setSessionRegistry", [sessionRegistry]);
   await send(sessionRegistry, sessionRegistryAbi, "setEscalationRouter", [escalationRouter]);

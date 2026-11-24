@@ -5122,6 +5122,11 @@ export const sessionRegistryAbi = [
         "name": "humanRoot_",
         "type": "address",
         "internalType": "address"
+      },
+      {
+        "name": "orgRegistry_",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "nonpayable"
@@ -5460,6 +5465,25 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "issuedBy",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "issuer",
     "inputs": [],
     "outputs": [
@@ -5532,6 +5556,19 @@ export const sessionRegistryAbi = [
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "orgRegistry",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "contract IOrgRegistry"
       }
     ],
     "stateMutability": "view"
@@ -5951,6 +5988,17 @@ export const sessionRegistryAbi = [
         "name": "windowEnd",
         "type": "uint32",
         "internalType": "uint32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "IssuerAgentNotEligible",
+    "inputs": [
+      {
+        "name": "agent",
+        "type": "address",
+        "internalType": "address"
       }
     ]
   },

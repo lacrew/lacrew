@@ -134,6 +134,7 @@ export const sessionScenarios: Scenario[] = [
   }),
 
   scenario("who may issue a session, and what an issue must look like", (b) => {
+    b.crew();
     b.reverts("NotAuthorized", "stranger", "@sessions", "issue", [
       "worker",
       "key",
@@ -161,13 +162,20 @@ export const sessionScenarios: Scenario[] = [
     b.call("root", "@sessions", "setIssuer", ["issuer"]);
     b.session({ from: "issuer", ttl: 30 * DAY });
     b.sessionReverts("ExpiryExceedsIssuerTtl", { from: "issuer", ttl: 30 * DAY + 1 });
-    b.session({ key: "key2", ttl: 365 * DAY });
+    const rootKey2 = b.session({ key: "key2", ttl: 365 * DAY });
 
     b.reverts("NotAuthorized", "issuer", "@sessions", "setMaxIssuerTtl", [BigInt(HOUR)]);
     b.reverts("ZeroTtl", "root", "@sessions", "setMaxIssuerTtl", [0n]);
     b.call("root", "@sessions", "setMaxIssuerTtl", [BigInt(HOUR)]);
     b.sessionReverts("ExpiryExceedsIssuerTtl", { from: "issuer", ttl: HOUR + 1 });
     b.session({ from: "issuer", ttl: HOUR });
+
+    // The issuer acts for agents only: never the root, a peer human or a stranger,
+    // and never over a session the root issued.
+    b.sessionReverts("IssuerAgentNotEligible", { from: "issuer", agent: "root", ttl: HOUR });
+    b.sessionReverts("IssuerAgentNotEligible", { from: "issuer", agent: "stranger", ttl: HOUR });
+    b.sessionReverts("NotAuthorized", { from: "issuer", key: "key2", ttl: HOUR });
+    b.reverts("NotAuthorized", "issuer", "@sessions", "revoke", [BigInt(rootKey2)]);
 
     // The ceiling is added to the timestamp in 64 bits, checked.
     b.call("root", "@sessions", "setMaxIssuerTtl", [MAX_UINT64]);

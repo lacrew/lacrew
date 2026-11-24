@@ -275,7 +275,7 @@ export function genesis(params: GenesisParams): World {
   run(deployer, (ctx) => epochStreamer.deploy(ctx, allocateAddress(ctx), a().treasury, operator));
   run(deployer, (ctx) => treasury.setStreamer(ctx, a().epochStreamer));
 
-  run(deployer, (ctx) => sessionRegistry.deploy(ctx, allocateAddress(ctx), root));
+  run(deployer, (ctx) => sessionRegistry.deploy(ctx, allocateAddress(ctx), root, a().orgRegistry));
   run(deployer, (ctx) => escalationRouter.setSessionRegistry(ctx, a().sessionRegistry));
   run(root, (ctx) => sessionRegistry.setEscalationRouter(ctx, a().escalationRouter));
 
