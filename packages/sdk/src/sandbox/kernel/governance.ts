@@ -36,6 +36,8 @@ export const SET_GOVERNOR_SELECTOR = "0xc42cf535";
 export const ROTATE_ROOT_SELECTOR = "0x611ab368";
 /** `bytes4(keccak256("setIssuer(address)"))`. */
 export const SET_ISSUER_SELECTOR = "0x55cc4e57";
+/** `bytes4(keccak256("withdraw(address,uint256)"))`: Treasury's outflow, always High tier. */
+export const WITHDRAW_SELECTOR = "0xf3fef3a3";
 /** `bytes4(keccak256("addNode(address,uint8,address)"))`: the one selector seeded as low tier. */
 export const ADD_NODE_SELECTOR = "0x38a08841";
 /** Default minimum age of a low-tier proposal before it may execute. */
@@ -424,6 +426,7 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
     if (selector === ROTATE_ROOT_SELECTOR || selector === SET_ISSUER_SELECTOR) {
       throw new SimRevert("RootAuthorityNotHighTier");
     }
+    if (selector === WITHDRAW_SELECTOR) throw new SimRevert("WithdrawNotHighTier");
   }
   if (tier !== Tier.High) requireLowTierAction(ctx, target, data);
   const proposalId = state.nextProposalId++;
