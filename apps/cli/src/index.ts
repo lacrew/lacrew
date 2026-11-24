@@ -175,7 +175,9 @@ function cmdDeploy(args: string[]): void {
   ];
   const missingLibs = forgeLibs.filter(([dir]) => !existsSync(join(contractsDir, "lib", dir)));
   if (missingLibs.length > 0) {
-    console.error(`Missing Solidity dependencies in ${join(contractsDir, "lib")}: ${missingLibs.map(([d]) => d).join(", ")}`);
+    console.error(
+      `Missing Solidity dependencies in ${join(contractsDir, "lib")}: ${missingLibs.map(([d]) => d).join(", ")}`,
+    );
     console.error("Install them once, then re-run the deploy:");
     console.error(`  cd ${contractsDir}`);
     for (const [, spec] of missingLibs) console.error(`  forge install ${spec} --no-git`);
