@@ -1,0 +1,71 @@
+name: Mythril
+
+# Symbolic execution takes minutes per contract, so it is not a PR gate (Slither
+# in ci.yml is). It runs weekly, on demand, and when the Solidity sources change
+# on main, and fails on any High finding. Reports are kept as an artifact.
+# Aderyn was evaluated and skipped: Cyfrin retired it (no binaries, npm or
+# crates releases), so there is nothing installable to pin.
+
+on:
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "contracts/src/**"
+      - "contracts/mythril.solc.json"
+      - ".github/workflows/mythril.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  mythril:
+    name: Mythril
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: contracts
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+      - name: Install OpenZeppelin
+        run: forge install OpenZeppelin/openzeppelin-contracts@v5.3.0 --no-git
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install Mythril
+        run: pip install mythril==0.24.8
+      - name: Analyze
+        run: |
+          mkdir -p ../mythril-reports
+          status=0
+          # Deployable contracts only: interfaces and test mocks carry no logic.
+          for f in src/*.sol src/policies/*.sol; do
+            name=$(basename "$f" .sol)
+            echo "::group::$f"
+            myth analyze "$f" --solv 0.8.28 --solc-json mythril.solc.json \
+              --execution-timeout 600 --max-depth 22 -o json \
+              > "../mythril-reports/$name.json" || true
+            if ! jq -e . "../mythril-reports/$name.json" > /dev/null 2>&1; then
+              echo "::error file=contracts/$f::Mythril produced no JSON report"
+              status=1
+            else
+              jq -r '.issues[] | "\(.severity)\t\(.title)\t\(.contract).\(.function)"' \
+                "../mythril-reports/$name.json" || true
+              if [ "$(jq '[.issues[] | select(.severity == "High")] | length' "../mythril-reports/$name.json")" -gt 0 ]; then
+                echo "::error file=contracts/$f::Mythril reported High severity issues"
+                status=1
+              fi
+            fi
+            echo "::endgroup::"
+          done
+          exit $status
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: mythril-reports
+          path: mythril-reports/
