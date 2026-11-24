@@ -1720,6 +1720,11 @@ export const escalationRouterAbi = [
   },
   {
     "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SessionScopeDenied",
     "inputs": [
       {

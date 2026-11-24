@@ -56,6 +56,8 @@ export const NOT_SIMULATED: Record<string, string> = {
   "Treasury.AlreadyPaused": "Raised only by pause(), which is not simulated.",
   "Treasury.NotPaused": "Raised only by unpause(), which is not simulated.",
   "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
+  "EscalationRouter.ReentrancyGuardReentrantCall":
+    "OpenZeppelin ReentrancyGuard on propose/resolve; raised only when a call target re-enters the router, which the sandbox kernel does not model (its targets are not contracts that can call back). Covered by RouterReentrancy.t.sol.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
   "Treasury.SafeERC20FailedOperation":
