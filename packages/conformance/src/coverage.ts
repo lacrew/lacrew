@@ -43,6 +43,19 @@ export const NOT_SIMULATED: Record<string, string> = {
     "Binds a CumulativeValuePolicy, which the sandbox does not model; a sandbox org records no settled value. TODO: mirror the module and the router's value recording in the kernel.",
   "EscalationRouter.setNodeValueRecorder":
     "Per-node binding of a CumulativeValuePolicy; not simulated for the same reason as setValueRecorder.",
+  "EscalationRouter.pause":
+    "Emergency stop gated on the governance authority (the governor, or the deployer until one is bound). The sandbox kernel does not model the kill switch. TODO: mirror pause state and the EnforcedPause guard in the kernel.",
+  "EscalationRouter.unpause":
+    "Lifts the emergency stop; not simulated for the same reason as pause.",
+  "EscalationRouter.AlreadyPaused": "Raised only by pause(), which is not simulated.",
+  "EscalationRouter.NotPaused": "Raised only by unpause(), which is not simulated.",
+  "EscalationRouter.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
+  "Treasury.pause":
+    "Emergency stop gated on the governance authority. The sandbox treasury does not model the kill switch. TODO: mirror pause state and the EnforcedPause guard in the kernel.",
+  "Treasury.unpause": "Lifts the emergency stop; not simulated for the same reason as pause.",
+  "Treasury.AlreadyPaused": "Raised only by pause(), which is not simulated.",
+  "Treasury.NotPaused": "Raised only by unpause(), which is not simulated.",
+  "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
   "Treasury.SafeERC20FailedOperation":
