@@ -194,7 +194,9 @@ const EPOCH_STREAMER: HandlerTable = {
   setGrants: (ctx, [nodes, amounts]) =>
     epochStreamer.setGrants(ctx, [...nodes], [...amounts].map(big)),
   runNextEpoch: (ctx) => epochStreamer.runNextEpoch(ctx),
-  runEpoch: (ctx, [epoch]) => epochStreamer.runEpoch(ctx, big(epoch)),
+  epochUnlockTime: (ctx, [epoch]) => epochStreamer.epochUnlockTime(ctx, big(epoch)),
+  epochStart: (ctx) => ctx.world.epochStreamer.epochStart,
+  epochDuration: (ctx) => ctx.world.epochStreamer.epochDuration,
 };
 
 const GOVERNANCE: HandlerTable = {

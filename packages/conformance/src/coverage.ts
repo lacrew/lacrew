@@ -58,6 +58,7 @@ export const NOT_SIMULATED: Record<string, string> = {
   "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
+<<<<<<< HEAD
   "OrgRegistry.TooManyChildren":
     "Gas guard: caps direct children per node at MAX_CHILDREN (100) so removeNode's re-parent loop fits a block. Reaching it needs over 100 seats; the sandbox kernel does not model the cap. Covered by OrgRegistry.t.sol.",
   "OrgRegistry.MaxDepthExceeded":
@@ -70,6 +71,12 @@ export const NOT_SIMULATED: Record<string, string> = {
     "High-tier governed payout of liquid funds out of the treasury. Not modelled by the sandbox kernel. TODO: mirror it in the kernel.",
   "GovernanceModule.WithdrawNotHighTier":
     "Raised only when a withdraw proposal is below High tier; the sandbox does not simulate Treasury.withdraw.",
+=======
+  "EpochStreamer.EpochAlreadyRun":
+    "Defence in depth: epochs only run through runNextEpoch, which always advances to an epoch that has not run, so no call can raise it.",
+  "EpochStreamer.ZeroDuration":
+    "Raised only by the constructor, and conformance deploys the streamer through deployOrg with a non-zero duration.",
+>>>>>>> 32b6bbe (fix(sandbox): mirror the time-gated EpochStreamer and refresh the gas snapshot)
   "Treasury.SafeERC20FailedOperation":
     "SafeERC20 guard for tokens that return false. MockUSDC reverts with its own error instead.",
   "Treasury.TransferAmountMismatch":

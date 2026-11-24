@@ -12,6 +12,10 @@ const CONTRACT = "EpochStreamer";
 
 export interface EpochStreamerState {
   treasury: Address;
+  /** Timestamp at which epoch 1 unlocks. */
+  epochStart: bigint;
+  /** Seconds between consecutive epoch unlocks. */
+  epochDuration: bigint;
   operator: Address;
   governor: Address;
   currentEpoch: bigint;
@@ -24,6 +28,8 @@ export interface EpochStreamerState {
 export function blankEpochStreamer(): EpochStreamerState {
   return {
     treasury: ZERO_ADDRESS,
+    epochStart: 0n,
+    epochDuration: 1n,
     operator: ZERO_ADDRESS,
     governor: ZERO_ADDRESS,
     currentEpoch: 0n,
@@ -33,15 +39,25 @@ export function blankEpochStreamer(): EpochStreamerState {
   };
 }
 
-export function deploy(ctx: Ctx, address: Address, treasury_: Address, operator_: Address): void {
+export function deploy(
+  ctx: Ctx,
+  address: Address,
+  treasury_: Address,
+  operator_: Address,
+  epochStart_: bigint,
+  epochDuration_: bigint,
+): void {
   if (addr(treasury_) === ZERO_ADDRESS || addr(operator_) === ZERO_ADDRESS) {
     throw new SimRevert("ZeroAddress");
   }
+  if (epochDuration_ === 0n) throw new SimRevert("ZeroDuration");
   ctx.world.addresses.epochStreamer = address;
   ctx.world.epochStreamer = {
     ...blankEpochStreamer(),
     treasury: addr(treasury_),
     operator: addr(operator_),
+    epochStart: epochStart_,
+    epochDuration: epochDuration_,
   };
 }
 
@@ -107,21 +123,21 @@ export function grantAmount(ctx: Ctx, node: Address): bigint {
   return ctx.world.epochStreamer.grantAmount[addr(node)] ?? 0n;
 }
 
-/** Advance `currentEpoch` and stream all grants. */
+/** Timestamp at which `epoch` (1-based) unlocks. */
+export function epochUnlockTime(ctx: Ctx, epoch: bigint): bigint {
+  const state = ctx.world.epochStreamer;
+  return state.epochStart + (epoch - 1n) * state.epochDuration;
+}
+
+/** Advance `currentEpoch` by exactly one and stream all grants, once that epoch has unlocked. */
 export function runNextEpoch(ctx: Ctx): bigint {
   onlyOperator(ctx);
   const epoch = checkedAdd(ctx.world.epochStreamer.currentEpoch, 1n, 64);
+  const unlockTime = epochUnlockTime(ctx, epoch);
+  if (ctx.now < unlockTime) throw new SimRevert("EpochNotReady", { epoch, unlockTime });
   runEpochInternal(ctx, epoch);
   ctx.world.epochStreamer.currentEpoch = epoch;
   return epoch;
-}
-
-/** Stream grants for an explicit epoch id (must not have run before). */
-export function runEpoch(ctx: Ctx, epoch: bigint): void {
-  onlyOperator(ctx);
-  runEpochInternal(ctx, epoch);
-  const state = ctx.world.epochStreamer;
-  if (epoch > state.currentEpoch) state.currentEpoch = epoch;
 }
 
 function runEpochInternal(ctx: Ctx, epoch: bigint): void {

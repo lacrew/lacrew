@@ -36,21 +36,45 @@ export const treasuryScenarios: Scenario[] = [
       "what the worker did not spend is still its own",
     );
 
-    // An explicit epoch id runs once, and moves the counter forward but never back.
-    b.reverts("EpochAlreadyRun", "root", "@streamer", "runEpoch", [2n]);
-    b.call("root", "@streamer", "runEpoch", [5n]);
-    b.expect({ epoch: 5 });
-    b.call("root", "@streamer", "runEpoch", [3n]);
+    b.call("root", "@streamer", "runNextEpoch");
+    b.call("root", "@streamer", "runNextEpoch");
     b.expect({
-      epoch: 5,
+      epoch: 4,
       allowance: { worker: 770n * USDC, manager: 200n * USDC },
       treasury: { reserved: 970n * USDC, liquid: 0n },
     });
 
     // One grant the treasury cannot cover refuses the whole epoch.
     b.reverts("InsufficientTreasury", "root", "@streamer", "runNextEpoch", [], "Treasury");
-    b.expect({ epoch: 5, allowance: { worker: 770n * USDC } });
+    b.expect({ epoch: 4, allowance: { worker: 770n * USDC } });
   }),
+
+  scenario(
+    "epochs unlock one at a time on the clock, never ahead of it",
+    (b) => {
+      b.call("root", "@registry", "addNode", ["worker", KIND.worker, "root"]);
+      b.fund(1_000n * USDC);
+      b.call("root", "@streamer", "setGrant", ["worker", 10n * USDC]);
+      b.reverts("EpochNotReady", "root", "@streamer", "runNextEpoch");
+      b.expect({ epoch: 0 });
+      b.warp(500);
+      b.call("root", "@streamer", "runNextEpoch");
+      b.expect({ epoch: 1, allowance: { worker: 10n * USDC } });
+      // The next epoch unlocks a full period after the last, however fast it is asked for.
+      b.reverts("EpochNotReady", "root", "@streamer", "runNextEpoch");
+      b.warp(100);
+      b.call("root", "@streamer", "runNextEpoch");
+      b.expect({ epoch: 2, allowance: { worker: 20n * USDC } });
+      // Time passing does not run epochs by itself: a backlog is drained one call at a time.
+      b.warp(300);
+      b.call("root", "@streamer", "runNextEpoch");
+      b.call("root", "@streamer", "runNextEpoch");
+      b.call("root", "@streamer", "runNextEpoch");
+      b.reverts("EpochNotReady", "root", "@streamer", "runNextEpoch");
+      b.expect({ epoch: 5, allowance: { worker: 50n * USDC } });
+    },
+    { epoch: { startOffset: 1_500n, duration: 100n } },
+  ),
 
   scenario("the grant schedule and the streamer's own authority", (b) => {
     b.call("root", "@registry", "addNode", ["worker", KIND.worker, "root"]);
@@ -76,7 +100,6 @@ export const treasuryScenarios: Scenario[] = [
     for (const fn of ["runNextEpoch"] as const) {
       b.reverts("NotOperator", "stranger", "@streamer", fn);
     }
-    b.reverts("NotOperator", "stranger", "@streamer", "runEpoch", [9n]);
     b.reverts("NotOperator", "stranger", "@streamer", "setOperator", ["stranger"]);
     b.reverts("NotOperator", "stranger", "@streamer", "setGovernor", ["@gov"]);
     b.reverts("ZeroAddress", "root", "@streamer", "setOperator", ["zero"]);

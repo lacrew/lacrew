@@ -78,6 +78,13 @@ export type DeployOrgOptions = {
    */
   bindGovernor?: boolean;
   /**
+   * `EpochStreamer` schedule. `startOffset` is epoch 1's unlock time relative to
+   * the deployment block (default -60, so a few epochs are already unlocked) and
+   * `duration` the seconds between unlocks (default 1, a dev cadence). Real
+   * deploys pass a real period.
+   */
+  epoch?: { startOffset?: bigint; duration?: bigint };
+  /**
    * Also deploy MarketplacePayments over the spend token, with the router as
    * its settlement router. `feeBps` defaults to 2000 and `feeRecipient` to the
    * root. Off by default: an org does not need a marketplace to run.
@@ -219,10 +226,9 @@ export async function deployOrg(options: DeployOrgOptions): Promise<DeployedOrg>
   const epochStreamer = await deploy("EpochStreamer", epochStreamerAbi, epochStreamerBytecode, [
     treasury,
     root,
-    // Mock-org deploy: epoch 1 is already unlocked and the cadence is 1s so
-    // local demo loops can run epochs back to back. Real deploys pass a real period.
-    BigInt(Math.floor(Date.now() / 1000) - 60),
-    1n,
+    // Unlock times are anchored to the chain's clock, not the host's.
+    (await publicClient.getBlock()).timestamp + (options.epoch?.startOffset ?? -60n),
+    options.epoch?.duration ?? 1n,
   ]);
   await send(treasury, treasuryAbi, "setStreamer", [epochStreamer]);
 
