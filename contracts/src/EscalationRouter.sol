@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 pragma solidity ^0.8.28;
 
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {IPolicyModule, Verdict} from "./interfaces/IPolicyModule.sol";
 import {IOrgRegistry} from "./interfaces/IOrgRegistry.sol";
 import {IRateRecorder} from "./interfaces/IRateRecorder.sol";
@@ -8,7 +11,6 @@ import {IValueRecorder} from "./interfaces/IValueRecorder.sol";
 import {ITreasurySpender} from "./interfaces/ITreasurySpender.sol";
 import {SessionRegistry} from "./SessionRegistry.sol";
 import {SessionScopes} from "./SessionScopes.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /// @title EscalationRouter
 /// @notice Creates pending intents when a policy returns ESCALATE; parents approve upward.
@@ -17,7 +19,18 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 /// @dev On ALLOW (propose or final resolve), optionally spends allowance and calls `target`.
 ///      When `sessionRegistry` is set, `propose` must be signed by a valid session key for `agent`
 ///      (or by `agent` itself for future AA EOAs).
+///
+///      Settlement has two shapes, chosen by whether the action carries calldata:
+///      - **Payment** (`value > 0`, empty `data`): the treasury transfers `value` to `target`.
+///      - **Call** (`value > 0`, non-empty `data`): pull-based. The router takes `value` from the
+///        treasury, approves `target` for exactly `value`, calls it, revokes the approval and
+///        returns whatever `target` did not pull to the agent's allowance. A DEX or any
+///        approve/transferFrom protocol works as-is, a contract that ignores the tokens costs
+///        nothing, and a failed call costs nothing. Only what `target` kept is charged to the
+///        value recorder.
 contract EscalationRouter is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     struct Intent {
         address agent;
         address target;
@@ -62,7 +75,14 @@ contract EscalationRouter is ReentrancyGuard {
     event IntentCreated(uint256 indexed intentId, address indexed agent, address awaitingApprover);
     event IntentEscalated(uint256 indexed intentId, address indexed from, address indexed to);
     event IntentResolved(uint256 indexed intentId, bool approved);
-    event ActionExecuted(address indexed agent, address indexed target, uint256 value, bool callOk);
+    /// @notice `value` is what the action cost the agent's allowance: the full value for a
+    ///         payment, and for a pull-settled call only what the target kept.
+    event ActionExecuted(
+        address indexed agent,
+        address indexed target,
+        uint256 value,
+        bool callOk
+    );
     event TreasuryUpdated(address indexed treasury);
     event RateRecorderUpdated(address indexed rateRecorder);
     event SessionRegistryUpdated(address indexed sessionRegistry);
@@ -71,6 +91,8 @@ contract EscalationRouter is ReentrancyGuard {
     event ValueRecorderUpdated(address indexed valueRecorder);
     event NodeValueRecorderUpdated(address indexed node, address indexed valueRecorder);
     event GovernorUpdated(address indexed governor);
+    /// @notice A pull settlement left `returned` unpulled; it went back to `agent`'s allowance.
+    event SettlementReturned(address indexed agent, address indexed target, uint256 returned);
     event Paused(address indexed by);
     event Unpaused(address indexed by);
 
@@ -89,7 +111,9 @@ contract EscalationRouter is ReentrancyGuard {
     error SessionTimeWindowDenied(address agent);
     /// @dev The router is `Treasury.spender`, `SessionRegistry.escalationRouter` and the
     ///      bound recorder of its rate and value modules. Letting an agent aim a policy-admitted
-    ///      call at one of those would lend it the router's own authority.
+    ///      call at one of those would lend it the router's own authority. The treasury's token
+    ///      is protected too: the router holds it during a pull settlement, and a call to the
+    ///      token itself would spend or approve away that balance outside the settlement.
     error ProtectedTarget(address target);
     error ZeroAddress();
     error EnforcedPause();
@@ -185,14 +209,15 @@ contract EscalationRouter is ReentrancyGuard {
     }
 
     /// @notice Propose an action; ALLOW executes spend+call, ESCALATE creates an intent, DENY reverts.
-    function propose(address agent, address target, uint256 value, bytes calldata data)
-        external
-        nonReentrant
-        returns (uint256 intentId, Verdict verdict)
-    {
+    function propose(
+        address agent,
+        address target,
+        uint256 value,
+        bytes calldata data
+    ) external nonReentrant returns (uint256 intentId, Verdict verdict) {
         IOrgRegistry.Node memory agentNode = orgRegistry.getNode(agent);
         if (!agentNode.active) revert InactiveAgent(agent);
-        _requireUnprotectedTarget(agent, target);
+        _requireUnprotectedTarget(agent, target, value, data.length);
         uint256 scopeMask = _requireValidSession(agent, target, value);
         // Count this propose against the key's rate limit (no-op unless wired and
         // the key has one). Reverts here roll back the count, so only a propose
@@ -309,21 +334,57 @@ contract EscalationRouter is ReentrancyGuard {
 
     function _finalizeAction(address agent, address target, uint256 value, bytes memory data) private {
         if (paused) revert EnforcedPause();
-        if (value > 0) {
+        uint256 settled = value;
+        bool callOk = true;
+        // A pull settlement records its value after the call, once it knows what the
+        // target kept. Every other path charges the value before the call, as before.
+        bool pull = value > 0 && data.length > 0 && address(treasury) != address(0);
+        if (value > 0 && !pull) {
             if (address(treasury) != address(0)) treasury.spendAllowance(agent, value, target);
             _recordValue(agent, target, value);
         }
 
-        // Count the action before the external call (checks-effects-interactions):
+        // Count the action before any external call to the target (checks-effects-interactions):
         // a target that calls back into the router must see this action already
         // inside the RateLimitPolicy window.
         _recordRate(agent);
 
-        bool callOk = true;
-        if (data.length > 0) {
-            (callOk,) = target.call(data);
+        if (pull) {
+            (settled, callOk) = _settlePull(agent, target, value, data);
+            if (settled > 0) _recordValue(agent, target, settled);
+        } else if (data.length > 0) {
+            (callOk, ) = target.call(data);
         }
-        emit ActionExecuted(agent, target, value, callOk);
+        emit ActionExecuted(agent, target, settled, callOk);
+    }
+
+    /// @dev Pull settlement. The router holds `value` only for the length of the call, and
+    ///      `target`'s approval never outlives it. Balance is measured against what the router
+    ///      held before, so stray tokens sent to the router are never spent or refunded.
+    ///      Tokens `target` sent back count as unpulled. Anything above `value` (a target
+    ///      paying the router more than it took) goes to the treasury as unreserved funds
+    ///      rather than inflating the agent's allowance.
+    function _settlePull(address agent, address target, uint256 value, bytes memory data)
+        private
+        returns (uint256 settled, bool callOk)
+    {
+        IERC20 token = treasury.token();
+        uint256 before = token.balanceOf(address(this));
+        treasury.spendAllowance(agent, value);
+        token.forceApprove(target, value);
+        (callOk, ) = target.call(data);
+        token.forceApprove(target, 0);
+
+        uint256 held = token.balanceOf(address(this));
+        uint256 left = held > before ? held - before : 0;
+        uint256 refund = left > value ? value : left;
+        if (refund > 0) {
+            token.forceApprove(address(treasury), refund);
+            treasury.refundAllowance(agent, refund);
+            emit SettlementReturned(agent, target, refund);
+        }
+        if (left > refund) token.safeTransfer(address(treasury), left - refund);
+        settled = value - refund;
     }
 
     function _recordRate(address agent) private {
@@ -386,7 +447,12 @@ contract EscalationRouter is ReentrancyGuard {
     /// @dev Policy decides what an agent may call; this only refuses the contracts
     ///      that trust the router as `msg.sender`, whatever the policy says. Checked
     ///      at propose so no such intent can even be created for a parent to approve.
-    function _requireUnprotectedTarget(address agent, address target) private view {
+    function _requireUnprotectedTarget(
+        address agent,
+        address target,
+        uint256 value,
+        uint256 dataLength
+    ) private view {
         // Unwired slots are zero; a zero target must not match them.
         if (target == address(0)) return;
         if (
@@ -394,6 +460,12 @@ contract EscalationRouter is ReentrancyGuard {
                 || target == address(rateRecorder) || target == address(rateRecorderOf[agent])
                 || target == address(valueRecorder) || target == address(valueRecorderOf[agent])
         ) {
+            revert ProtectedTarget(target);
+        }
+        // An action with neither value nor calldata touches nothing, so it needs no token
+        // lookup; that also keeps a no-op working while the treasury slot is miswired.
+        if (value == 0 && dataLength == 0) return;
+        if (address(treasury) != address(0) && target == address(treasury.token())) {
             revert ProtectedTarget(target);
         }
     }
