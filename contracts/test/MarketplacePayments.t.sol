@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {MarketplacePayments} from "../src/MarketplacePayments.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {FeeOnTransferToken} from "./utils/SettlementFixtures.sol";
 
 contract MarketplacePaymentsTest is Test {
     MockUSDC internal usdc;
@@ -323,17 +324,17 @@ contract MarketplacePaymentsTest is Test {
 
     // ——— Org-funded rail (purchaseFor) ———
 
-    /// The router pays the target first, then calls it. Simulated here by transferring
-    /// the price in before calling purchaseFor.
-    function _deliverAndSettle(bytes32 id, address buyer, uint256 price, uint256 maxPrice)
+    /// The router approves the target for the intent's value, then calls it. Simulated
+    /// here by funding the router and approving `approved` before purchaseFor.
+    function _approveAndSettle(bytes32 id, address buyer_, uint256 approved, uint256 maxPrice)
         private
     {
         address router = market.settlementRouter();
-        usdc.mint(router, price);
+        usdc.mint(router, approved);
         vm.prank(router);
-        usdc.transfer(address(market), price);
+        usdc.approve(address(market), approved);
         vm.prank(router);
-        market.purchaseFor(id, buyer, maxPrice);
+        market.purchaseFor(id, buyer_, maxPrice);
     }
 
     function _wireRouter() private returns (address router) {
@@ -342,24 +343,35 @@ contract MarketplacePaymentsTest is Test {
         market.setSettlementRouter(router);
     }
 
-    function test_purchaseForSettlesFromDeliveredFunds() public {
-        _wireRouter();
-        _deliverAndSettle(LISTING, buyer, 100 * ONE, 100 * ONE);
+    function test_purchaseForPullsThePriceFromTheRouter() public {
+        address router = _wireRouter();
+        _approveAndSettle(LISTING, buyer, 100 * ONE, 100 * ONE);
 
         assertTrue(market.hasPurchased(LISTING, buyer), "buyer holds the receipt, not the router");
         assertEq(market.owed(seller), 80 * ONE);
         assertEq(market.owed(platform), 20 * ONE);
-        assertEq(market.unallocatedBalance(), 0, "delivery exactly consumed");
+        assertEq(usdc.balanceOf(router), 0, "the price was pulled");
+        assertEq(market.unallocatedBalance(), 0, "pull consumed exactly the price");
     }
 
-    /// Without delivered funds the contract would credit debt it cannot pay.
-    function test_revertsPurchaseForWithoutDeliveredFunds() public {
+    /// Approval beyond the price is not taken: the router keeps it for the refund.
+    function test_purchaseForPullsOnlyThePrice() public {
         address router = _wireRouter();
+        _approveAndSettle(LISTING, buyer, 150 * ONE, 150 * ONE);
+
+        assertEq(usdc.balanceOf(router), 50 * ONE, "the excess stays with the router");
+        assertEq(usdc.balanceOf(address(market)), 100 * ONE);
+        assertEq(market.unallocatedBalance(), 0);
+    }
+
+    /// Without an approval nothing is credited.
+    function test_revertsPurchaseForWithoutApproval() public {
+        address router = _wireRouter();
+        usdc.mint(router, 100 * ONE);
         vm.prank(router);
-        vm.expectRevert(
-            abi.encodeWithSelector(MarketplacePayments.FundsNotDelivered.selector, 100 * ONE, 0)
-        );
+        vm.expectRevert();
         market.purchaseFor(LISTING, buyer, 100 * ONE);
+        assertFalse(market.hasPurchased(LISTING, buyer));
     }
 
     /// A stray balance must not let a caller settle a purchase for free.
@@ -373,26 +385,23 @@ contract MarketplacePaymentsTest is Test {
         market.purchaseFor(LISTING, buyer, 100 * ONE);
     }
 
-    /// A seller's accrued balance must never be reachable as "delivered" funds.
+    /// A seller's accrued balance is never what pays for a router purchase.
     function test_purchaseForCannotConsumeAccruedSellerBalance() public {
         address router = _wireRouter();
 
-        // Direct purchase leaves 100 owed to seller+platform, held by the contract.
         vm.prank(buyer);
         market.purchase(LISTING, 100 * ONE);
         assertEq(usdc.balanceOf(address(market)), 100 * ONE);
-        assertEq(market.unallocatedBalance(), 0, "all of it is spoken for");
 
         bytes32 second = keccak256("second");
         vm.prank(seller);
         market.registerListing(second, 100 * ONE);
 
-        // No new funds delivered — the held balance belongs to payees, not this purchase.
+        // The router has no funds of its own: the held balance belongs to payees.
         vm.prank(router);
-        vm.expectRevert(
-            abi.encodeWithSelector(MarketplacePayments.FundsNotDelivered.selector, 100 * ONE, 0)
-        );
+        vm.expectRevert();
         market.purchaseFor(second, other, 100 * ONE);
+        assertEq(market.totalOwed(), 100 * ONE);
     }
 
     function test_purchaseForRespectsMaxPrice() public {
@@ -402,7 +411,7 @@ contract MarketplacePaymentsTest is Test {
 
         usdc.mint(router, 500 * ONE);
         vm.prank(router);
-        usdc.transfer(address(market), 500 * ONE);
+        usdc.approve(address(market), 500 * ONE);
         vm.prank(router);
         vm.expectRevert(
             abi.encodeWithSelector(
@@ -412,13 +421,10 @@ contract MarketplacePaymentsTest is Test {
         market.purchaseFor(LISTING, buyer, 100 * ONE);
     }
 
-    function test_sweepRecoversOverDeliveryOnly() public {
-        address router = _wireRouter();
-        usdc.mint(router, 150 * ONE);
-        vm.prank(router);
-        usdc.transfer(address(market), 150 * ONE); // 50 more than the price
-        vm.prank(router);
-        market.purchaseFor(LISTING, buyer, 100 * ONE);
+    function test_sweepRecoversStrayTransfersOnly() public {
+        vm.prank(buyer);
+        market.purchase(LISTING, 100 * ONE);
+        usdc.mint(address(market), 50 * ONE); // sent in directly, owed to no one
 
         assertEq(market.unallocatedBalance(), 50 * ONE);
 
@@ -432,6 +438,24 @@ contract MarketplacePaymentsTest is Test {
         vm.prank(seller);
         market.withdraw();
         assertEq(usdc.balanceOf(seller), 80 * ONE);
+    }
+
+    /// A token that skims transfers would leave `totalOwed` unbacked; it must not settle.
+    function test_revertsFeeOnTransferPurchase() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken();
+        MarketplacePayments m = new MarketplacePayments(address(fot), platform, governor, 2000);
+        vm.prank(seller);
+        m.registerListing(LISTING, 100 * ONE);
+        fot.mint(buyer, 100 * ONE);
+        vm.startPrank(buyer);
+        fot.approve(address(m), 100 * ONE);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                MarketplacePayments.TransferAmountMismatch.selector, 100 * ONE, 99 * ONE
+            )
+        );
+        m.purchase(LISTING, 100 * ONE);
+        vm.stopPrank();
     }
 
     function test_revertsSweepByStranger() public {

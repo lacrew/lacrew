@@ -502,6 +502,24 @@ export const treasuryAbi = [
   },
   {
     "type": "function",
+    "name": "refundAllowance",
+    "inputs": [
+      {
+        "name": "node",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "setGovernor",
     "inputs": [
       {
@@ -538,6 +556,19 @@ export const treasuryAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "shortfall",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -654,6 +685,25 @@ export const treasuryAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "event",
+    "name": "AllowanceRefunded",
+    "inputs": [
+      {
+        "name": "node",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "amount",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
   },
   {
     "type": "event",
@@ -830,6 +880,22 @@ export const treasuryAbi = [
         "name": "token",
         "type": "address",
         "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TransferAmountMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },
@@ -1454,6 +1520,31 @@ export const escalationRouterAbi = [
   },
   {
     "type": "event",
+    "name": "SettlementReturned",
+    "inputs": [
+      {
+        "name": "agent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "target",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      },
+      {
+        "name": "returned",
+        "type": "uint256",
+        "indexed": false,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "TreasuryUpdated",
     "inputs": [
       {
@@ -1577,6 +1668,22 @@ export const escalationRouterAbi = [
     "inputs": [
       {
         "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "ReentrancyGuardReentrantCall",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "SafeERC20FailedOperation",
+    "inputs": [
+      {
+        "name": "token",
         "type": "address",
         "internalType": "address"
       }
@@ -6509,22 +6616,6 @@ export const marketplacePaymentsAbi = [
   },
   {
     "type": "error",
-    "name": "FundsNotDelivered",
-    "inputs": [
-      {
-        "name": "required",
-        "type": "uint256",
-        "internalType": "uint256"
-      },
-      {
-        "name": "delivered",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ]
-  },
-  {
-    "type": "error",
     "name": "ListingInactive",
     "inputs": [
       {
@@ -6634,6 +6725,22 @@ export const marketplacePaymentsAbi = [
         "name": "listingId",
         "type": "bytes32",
         "internalType": "bytes32"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TransferAmountMismatch",
+    "inputs": [
+      {
+        "name": "expected",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "actual",
+        "type": "uint256",
+        "internalType": "uint256"
       }
     ]
   },

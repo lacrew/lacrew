@@ -117,6 +117,8 @@ const TREASURY: HandlerTable = {
     treasury.streamAllowance(ctx, node, big(amount), big(epoch)),
   // Two overloads share the name; the argument count tells them apart.
   spendAllowance: (ctx, [node, amount, to]) => treasury.spendAllowance(ctx, node, big(amount), to),
+  refundAllowance: (ctx, [node, amount]) => treasury.refundAllowance(ctx, node, big(amount)),
+  shortfall: (ctx) => treasury.shortfall(ctx),
 };
 
 const ESCALATION_ROUTER: HandlerTable = {

@@ -8,6 +8,7 @@ import * as orgRegistry from "./orgRegistry.js";
 import * as policies from "./policies.js";
 import { Verdict, type VerdictValue } from "./policies.js";
 import * as sessionRegistry from "./sessionRegistry.js";
+import * as token from "./token.js";
 import * as treasury from "./treasury.js";
 import {
   EVM_REVERT,
@@ -146,7 +147,7 @@ export function propose(
 
   const agentNode = readNode(ctx, agent);
   if (!agentNode.active) throw new SimRevert("InactiveAgent", { agent });
-  requireUnprotectedTarget(ctx, agent, target);
+  requireUnprotectedTarget(ctx, agent, target, value, data);
   const scopeMask = requireValidSession(ctx, agent, target, value);
   // Count this propose against the key's rate limit (no-op unless wired and
   // the key has one).
@@ -272,20 +273,63 @@ export function intents(ctx: Ctx, intentId: bigint): IntentState {
   };
 }
 
+/**
+ * A payment (`value`, no calldata) is pushed to `target`; a call with value is
+ * settled pull-style — see `settlePull`.
+ */
 function finalizeAction(ctx: Ctx, agent: Address, target: Address, value: bigint, data: Hex): void {
   const state = ctx.world.escalationRouter;
   const self = ctx.world.addresses.escalationRouter;
+  let callOk = true;
+  let settled = value;
   if (state.treasury !== ZERO_ADDRESS && value > 0n) {
     if (state.treasury !== ctx.world.addresses.treasury) throw new SimRevert(EVM_REVERT);
-    treasury.spendAllowance(asSender(ctx, self), agent, value, target);
-  }
-
-  let callOk = true;
-  if (byteLength(data) > 0) {
+    if (byteLength(data) === 0) {
+      treasury.spendAllowance(asSender(ctx, self), agent, value, target);
+    } else {
+      ({ settled, callOk } = settlePull(ctx, agent, target, value, data));
+    }
+  } else if (byteLength(data) > 0) {
     callOk = externalCall(ctx, self, target, data);
   }
   recordRate(ctx, agent);
-  emit(ctx, self, CONTRACT, "ActionExecuted", { agent, target, value, callOk });
+  // `value` on the event is what the action cost: for a pull, only what the target kept.
+  emit(ctx, self, CONTRACT, "ActionExecuted", { agent, target, value: settled, callOk });
+}
+
+/**
+ * Take `value` from the treasury, approve `target` for exactly that, call it,
+ * revoke, and return whatever it did not pull to the agent's allowance. Tokens
+ * above `value` (a target paying the router more than it took) go to the
+ * treasury as unreserved funds. Stray router balance is never touched.
+ */
+function settlePull(
+  ctx: Ctx,
+  agent: Address,
+  target: Address,
+  value: bigint,
+  data: Hex,
+): { settled: bigint; callOk: boolean } {
+  const self = ctx.world.addresses.escalationRouter;
+  const treasuryAddress = ctx.world.addresses.treasury;
+  const router = asSender(ctx, self);
+  if (ctx.world.treasury.token !== ctx.world.addresses.token) throw new SimRevert(EVM_REVERT);
+  const before = token.balanceOf(ctx, self);
+  treasury.spendAllowance(router, agent, value);
+  token.approve(router, target, value);
+  const callOk = externalCall(ctx, self, target, data);
+  token.approve(router, target, 0n);
+
+  const held = token.balanceOf(ctx, self);
+  const left = held > before ? held - before : 0n;
+  const refund = left > value ? value : left;
+  if (refund > 0n) {
+    token.approve(router, treasuryAddress, refund);
+    treasury.refundAllowance(router, agent, refund);
+    emit(ctx, self, CONTRACT, "SettlementReturned", { agent, target, returned: refund });
+  }
+  if (left > refund) token.transfer(router, treasuryAddress, left - refund);
+  return { settled: value - refund, callOk };
 }
 
 function recordRate(ctx: Ctx, agent: Address): void {
@@ -342,7 +386,13 @@ function requireSpendScope(ctx: Ctx, agent: Address, scopeMask: bigint): void {
 }
 
 /** Refuses the contracts that trust the router as `msg.sender`, whatever the policy says. */
-function requireUnprotectedTarget(ctx: Ctx, agent: Address, target: Address): void {
+function requireUnprotectedTarget(
+  ctx: Ctx,
+  agent: Address,
+  target: Address,
+  value: bigint,
+  data: Hex,
+): void {
   const state = ctx.world.escalationRouter;
   // Unwired slots are zero; a zero target must not match them.
   if (target === ZERO_ADDRESS) return;
@@ -353,6 +403,15 @@ function requireUnprotectedTarget(ctx: Ctx, agent: Address, target: Address): vo
     target === state.rateRecorder ||
     target === (state.rateRecorderOf[agent] ?? ZERO_ADDRESS)
   ) {
+    throw new SimRevert("ProtectedTarget", { target });
+  }
+  // The router holds the treasury's token during a pull settlement. An action with
+  // neither value nor calldata touches nothing, so it needs no token lookup.
+  if (value === 0n && byteLength(data) === 0) return;
+  if (state.treasury !== ZERO_ADDRESS) {
+    if (state.treasury !== ctx.world.addresses.treasury) throw new SimRevert(EVM_REVERT);
+  }
+  if (state.treasury !== ZERO_ADDRESS && target === ctx.world.treasury.token) {
     throw new SimRevert("ProtectedTarget", { target });
   }
 }
