@@ -167,6 +167,21 @@ function cmdDeploy(args: string[]): void {
     return;
   }
 
+  // contracts/lib is gitignored, so a fresh clone has no Solidity dependencies
+  // and forge fails with an unhelpful "Source ... not found".
+  const missingLibs = [
+    ["forge-std", "foundry-rs/forge-std"],
+    ["openzeppelin-contracts", "OpenZeppelin/openzeppelin-contracts@v5.3.0"],
+  ].filter(([dir]) => !existsSync(join(contractsDir, "lib", dir)));
+  if (missingLibs.length > 0) {
+    console.error(`Missing Solidity dependencies in ${join(contractsDir, "lib")}: ${missingLibs.map(([d]) => d).join(", ")}`);
+    console.error("Install them once, then re-run the deploy:");
+    console.error(`  cd ${contractsDir}`);
+    for (const [, spec] of missingLibs) console.error(`  forge install ${spec} --no-git`);
+    process.exitCode = 1;
+    return;
+  }
+
   const broadcastRpc = !anvil && sepoliaRpc ? sepoliaRpc : rpcUrl;
 
   console.log(`Deploying MockOrg via forge script → ${broadcastRpc}`);
