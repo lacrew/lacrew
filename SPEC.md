@@ -393,6 +393,39 @@ model shared root custody, and pretending otherwise in the tree would be the
 dishonest version of this feature. See `SECURITY.md` for what that leaves
 exposed.
 
+### 6.2 Root rotation — replacing a lost or compromised root key
+
+The root address is not fixed at deploy. `GovernanceModule.rotateRoot(newRoot,
+rooted)` moves it in one transaction:
+
+- **the seat** — the old root's `Human` seat moves to `newRoot` with its weight,
+  or, when `newRoot` already holds a `Human` seat (a partner being promoted), is
+  simply revoked. The retired key loses its vote, its veto and its parameter
+  admin. An `Agent` seat cannot become the root (`RootIsAgentSeat`).
+- **every contract in `rooted`** — each is called with `rotateRoot(newRoot)`
+  and must have this module as its governor. In a deployed org that is the
+  `OrgRegistry` (the tree's top node, and with it `EscalationRouter.resolve`'s
+  fallback authority, which reads `root()` live) and the `SessionRegistry` (the
+  direct session admin, and the issuer when the issuer was still the root). A
+  call that fails anywhere reverts the whole rotation, so the contracts never
+  disagree about who the root is.
+
+`rotateRoot` is seat admin, so it runs only as an executed proposal (or, before
+any human is seated, from the root itself), and every path to it is High tier:
+a proposal targeting the module is forced High, and so is any proposal whose
+calldata is `rotateRoot(address)` or `setIssuer(address)` on another contract
+(`RootAuthorityNotHighTier`). The human quorum, the timelock and the veto
+window all apply.
+
+`OrgRegistry.rotateRoot` accepts a fresh address or a `HumanRoot` node directly
+under the root (`InvalidRoot` otherwise). The old root's node is removed, not
+demoted, and its reports move under `newRoot`.
+
+What it does not do: a root key that is compromised **and actively used** can
+still veto its own rotation while it holds its seat — the same "a veto is a
+stop, not a recovery" property as §6.1. Rotation recovers a lost key, and a
+compromised one whose holder does not contest it in the voting window.
+
 ## 7. SessionRegistry — bounded, expiring authority
 
 Agents boot with ephemeral keys scoped to their policy; orchestrator
@@ -405,7 +438,9 @@ function issue(address agent, address key, uint64 expiresAt, bytes32 scopesHash,
                uint256 maxValue, address allowedTarget) external returns (uint256);        // issuer
 function issueScoped(address agent, address key, uint64 expiresAt, bytes32 scopesHash,
                      uint256 maxValue, address[] calldata allowedTargets) external returns (uint256);
-function revoke(uint256 sessionId) external;                    // root or issuer
+function revoke(uint256 sessionId) external;                    // root, issuer or governor
+function setIssuer(address issuer) external;                    // root or governor
+function rotateRoot(address newRoot) external;                  // governor (root before one is bound)
 function isKeyValid(address agent, address key) external view returns (bool);
 function isTargetAllowed(address agent, address key, address target) external view returns (bool);
 function allowedTargetsOf(uint256 sessionId) external view returns (address[] memory);
@@ -428,8 +463,11 @@ same key binding, sessions it issued itself (`issuedBy(sessionId)`); the root ca
 revoke any.
 
 Events: `SessionIssued`, `SessionTargetsPinned` (when >1 target),
-`SessionRevoked`. Root revocation never depends on the issuer — the root key
-can always kill a session.
+`SessionRevoked`, `IssuerUpdated`, `GovernorUpdated`, `RootRotated`. Root
+revocation never depends on the issuer — the root key can always kill a
+session. Once a governor is bound (a deployed org binds the GovernanceModule),
+governance can also revoke any session and replace a compromised issuer without
+the root's signature; naming an issuer through a proposal is always High tier.
 
 ## 8. Event taxonomy (audit trail)
 
@@ -442,7 +480,7 @@ Postgres (`orchestrator_audit_events`), which dashboards and monitors read.
 | Payroll    | `GrantUpdated`, `EpochRun` (surfaced as `AllowanceStreamed`)                         |
 | Governance | `ProposalCreated`, `Voted`, `ProposalExecuted`, `ProposalVetoed`, `ProposalDefeated` |
 | Sessions   | `SessionIssued`, `SessionRevoked`                                                    |
-| Structure  | `NodeAdded`, `NodeRemoved`, `NodeReparented`, `NodeActiveUpdated`                    |
+| Structure  | `NodeAdded`, `NodeRemoved`, `NodeReparented`, `NodeActiveUpdated`, `RootRotated`     |
 
 ## 9. Conformance
 
