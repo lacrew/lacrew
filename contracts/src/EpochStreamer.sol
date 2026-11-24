@@ -13,6 +13,10 @@ contract EpochStreamer {
     /// @notice When non-zero, may call `setGrant` (typically GovernanceModule).
     address public governor;
 
+    /// @notice Max grant recipients. `_runEpoch` makes one Treasury call per recipient
+    ///         in a single tx, so this keeps payroll under the block gas limit.
+    uint256 public constant MAX_RECIPIENTS = 100;
+
     uint64 public currentEpoch;
     mapping(address => uint256) public grantAmount;
     address[] private _recipients;
@@ -31,6 +35,7 @@ contract EpochStreamer {
     error EmptySchedule();
     error GovernorAlreadySet();
     error LengthMismatch();
+    error TooManyRecipients();
 
     modifier onlyOperator() {
         if (msg.sender != operator) revert NotOperator(msg.sender);
@@ -85,6 +90,7 @@ contract EpochStreamer {
         } else {
             grantAmount[node] = amount;
             if (!_isRecipient[node]) {
+                if (_recipients.length >= MAX_RECIPIENTS) revert TooManyRecipients();
                 _isRecipient[node] = true;
                 _recipients.push(node);
             }

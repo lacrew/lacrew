@@ -124,4 +124,23 @@ contract EpochStreamerTest is Test {
         vm.expectRevert(abi.encodeWithSelector(EpochStreamer.NotAuthorized.selector, stranger));
         streamer.setGrants(nodes, amounts);
     }
+
+    function test_capsRecipientsAndFullEpochFitsInGas() public {
+        uint256 max = streamer.MAX_RECIPIENTS();
+        vm.startPrank(operator);
+        // worker + manager already registered
+        for (uint256 i = 2; i < max; i++) {
+            streamer.setGrant(address(uint160(1000 + i)), 1);
+        }
+        vm.expectRevert(EpochStreamer.TooManyRecipients.selector);
+        streamer.setGrant(address(uint160(9999)), 1);
+        // Updating an existing recipient is still allowed at the cap.
+        streamer.setGrant(worker, 7);
+        uint256 g = gasleft();
+        streamer.runNextEpoch();
+        uint256 used = g - gasleft();
+        vm.stopPrank();
+        emit log_named_uint("full-epoch gas", used);
+        assertLt(used, 30_000_000);
+    }
 }

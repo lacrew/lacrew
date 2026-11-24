@@ -26,6 +26,12 @@ contract OrgRegistry is IOrgRegistry {
     /// @notice When non-zero, only this address may mutate the tree (GovernanceModule).
     address public governor;
 
+    /// @notice Max direct children per node. Bounds `removeNode` (re-parents every
+    ///         child) and `_removeFromParent` (linear sibling scan) under the block gas limit.
+    uint256 public constant MAX_CHILDREN = 100;
+    /// @notice Max tree depth below root. Bounds the ancestor walk in `addNode`/`reparent`.
+    uint256 public constant MAX_DEPTH = 32;
+
     event NodeAdded(address indexed account, NodeKind kind, address indexed parent);
     event NodeRemoved(address indexed account, address indexed formerParent);
     event NodeReparented(address indexed account, address indexed oldParent, address indexed newParent);
@@ -39,6 +45,8 @@ contract OrgRegistry is IOrgRegistry {
     error NotAuthorized(address caller);
     error GovernorAlreadySet();
     error ZeroAddress();
+    error TooManyChildren(address parent);
+    error MaxDepthExceeded(address account);
 
     constructor(address humanRoot) {
         if (humanRoot == address(0)) revert ZeroAddress();
@@ -83,6 +91,9 @@ contract OrgRegistry is IOrgRegistry {
         if (_nodes[account].account != address(0)) revert NodeAlreadyExists(account);
         if (_nodes[parent].account == address(0)) revert InvalidParent(parent);
 
+        if (_children[parent].length >= MAX_CHILDREN) revert TooManyChildren(parent);
+        if (_depth(parent) >= MAX_DEPTH) revert MaxDepthExceeded(account);
+
         _nodes[account] = Node({account: account, kind: kind, parent: parent, active: true});
         _children[parent].push(account);
         emit NodeAdded(account, kind, parent);
@@ -107,6 +118,8 @@ contract OrgRegistry is IOrgRegistry {
         address parent = node.parent;
         address[] storage kids = _children[account];
         uint256 kidCount = kids.length;
+        // The parent loses `account` but gains its children; keep the sibling list bounded.
+        if (_children[parent].length - 1 + kidCount > MAX_CHILDREN) revert TooManyChildren(parent);
         for (uint256 i = 0; i < kidCount; i++) {
             address child = kids[i];
             _nodes[child].parent = parent;
@@ -131,6 +144,7 @@ contract OrgRegistry is IOrgRegistry {
 
         address oldParent = node.parent;
         if (oldParent == newParent) return;
+        if (_children[newParent].length >= MAX_CHILDREN) revert TooManyChildren(newParent);
 
         _removeFromParent(oldParent, account);
         node.parent = newParent;
@@ -138,14 +152,25 @@ contract OrgRegistry is IOrgRegistry {
         emit NodeReparented(account, oldParent, newParent);
     }
 
-    /// @dev True if `maybeAncestor` is on the path from `node` up to root.
+    /// @dev True if `maybeAncestor` is on the path from `node` up to root. The walk is
+    ///      capped at MAX_DEPTH hops; a deeper chain reverts instead of burning gas.
     function _isAncestor(address maybeAncestor, address node) private view returns (bool) {
         address cursor = node;
-        while (cursor != address(0)) {
+        for (uint256 i = 0; cursor != address(0); i++) {
             if (cursor == maybeAncestor) return true;
+            if (i > MAX_DEPTH) revert MaxDepthExceeded(node);
             cursor = _nodes[cursor].parent;
         }
         return false;
+    }
+
+    /// @dev Hops from `node` to root (root = 0), reverting past MAX_DEPTH.
+    function _depth(address node) private view returns (uint256 d) {
+        address cursor = _nodes[node].parent;
+        while (cursor != address(0)) {
+            if (++d > MAX_DEPTH) revert MaxDepthExceeded(node);
+            cursor = _nodes[cursor].parent;
+        }
     }
 
     function _removeFromParent(address parent, address child) private {
