@@ -81,7 +81,7 @@ contract MultiAssetTest is Test {
         treasury = new Treasury(address(registry), token, address(router));
         router.setTreasury(address(treasury));
 
-        streamer = new EpochStreamer(address(treasury), address(this));
+        streamer = new EpochStreamer(address(treasury), address(this), uint64(block.timestamp), 1 days);
         treasury.setStreamer(address(streamer));
     }
 

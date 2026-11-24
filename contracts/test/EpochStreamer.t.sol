@@ -8,6 +8,7 @@ import {EpochStreamer} from "../src/EpochStreamer.sol";
 
 contract EpochStreamerTest is Test {
     uint256 internal constant ONE = 1e6;
+    uint64 internal constant EPOCH = 1 days;
 
     MockUSDC internal usdc;
     Treasury internal treasury;
@@ -19,7 +20,7 @@ contract EpochStreamerTest is Test {
     function setUp() public {
         usdc = new MockUSDC();
         treasury = new Treasury(makeAddr("registry"), address(usdc), makeAddr("router"));
-        streamer = new EpochStreamer(address(treasury), operator);
+        streamer = new EpochStreamer(address(treasury), operator, uint64(block.timestamp), EPOCH);
 
         treasury.setStreamer(address(streamer));
         // Governor not set — streamer path alone authorizes after setStreamer.
@@ -47,18 +48,50 @@ contract EpochStreamerTest is Test {
     function test_secondEpochAddsAgain() public {
         vm.startPrank(operator);
         streamer.runNextEpoch();
+        vm.warp(block.timestamp + EPOCH);
         streamer.runNextEpoch();
         vm.stopPrank();
         assertEq(treasury.allowanceBalance(worker), 200 * ONE);
         assertEq(streamer.currentEpoch(), 2);
     }
 
-    function test_rejectsDoubleRunSameEpoch() public {
+    /// Regression (audit PoC): back-to-back epochs must not book N payrolls in one tx.
+    function test_rejectsBackToBackEpochs() public {
         vm.startPrank(operator);
-        streamer.runEpoch(7);
-        vm.expectRevert(abi.encodeWithSelector(EpochStreamer.EpochAlreadyRun.selector, uint64(7)));
-        streamer.runEpoch(7);
+        streamer.runNextEpoch();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                EpochStreamer.EpochNotReady.selector, uint64(2), uint256(streamer.epochStart()) + EPOCH
+            )
+        );
+        streamer.runNextEpoch();
         vm.stopPrank();
+        assertEq(treasury.allowanceBalance(worker), 100 * ONE);
+        assertEq(treasury.liquidBalance(), 5_000 * ONE - 150 * ONE);
+    }
+
+    /// Elapsed epochs back-fill one per call; never ahead of the clock.
+    function test_backfillsElapsedEpochsOnly() public {
+        vm.warp(block.timestamp + 2 * EPOCH);
+        vm.startPrank(operator);
+        streamer.runNextEpoch();
+        streamer.runNextEpoch();
+        streamer.runNextEpoch();
+        vm.expectRevert();
+        streamer.runNextEpoch();
+        vm.stopPrank();
+        assertEq(streamer.currentEpoch(), 3);
+        assertEq(treasury.allowanceBalance(worker), 300 * ONE);
+    }
+
+    function test_epochUnlockTime() public view {
+        assertEq(streamer.epochUnlockTime(1), streamer.epochStart());
+        assertEq(streamer.epochUnlockTime(5), uint256(streamer.epochStart()) + 4 * EPOCH);
+    }
+
+    function test_rejectsZeroDuration() public {
+        vm.expectRevert(EpochStreamer.ZeroDuration.selector);
+        new EpochStreamer(address(treasury), operator, 0, 0);
     }
 
     function test_rejectsStranger() public {

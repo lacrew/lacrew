@@ -219,6 +219,10 @@ export async function deployOrg(options: DeployOrgOptions): Promise<DeployedOrg>
   const epochStreamer = await deploy("EpochStreamer", epochStreamerAbi, epochStreamerBytecode, [
     treasury,
     root,
+    // Mock-org deploy: epoch 1 is already unlocked and the cadence is 1s so
+    // local demo loops can run epochs back to back. Real deploys pass a real period.
+    BigInt(Math.floor(Date.now() / 1000) - 60),
+    1n,
   ]);
   await send(treasury, treasuryAbi, "setStreamer", [epochStreamer]);
 

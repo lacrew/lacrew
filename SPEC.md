@@ -147,7 +147,7 @@ never the treasury. `EpochStreamer` runs the schedule:
 
 ```solidity
 function setGrant(address node, uint256 amount) external;   // operator or governor
-function runNextEpoch() external returns (uint64 epoch);    // operator
+function runNextEpoch() external returns (uint64 epoch);    // operator; epoch n unlocks at epochStart + (n-1)*epochDuration
 function recipients() external view returns (address[] memory);
 ```
 
