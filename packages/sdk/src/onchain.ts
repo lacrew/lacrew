@@ -1621,6 +1621,10 @@ export class OnchainLacrewClient implements ProtocolClient {
    * contract must be whitelisted and set as the settlement router (DeployMockOrg
    * does both).
    *
+   * The intent pays the quoted gross, and settlement requires that payment to
+   * equal the listing price when the purchase executes. A seller repricing
+   * before an escalated purchase is approved makes it fail rather than settle.
+   *
    * Returns the router's verdict — `escalate` means a human still has to approve
    * before the seller is paid, so callers must not report a purchase as complete
    * on anything but `allow`.

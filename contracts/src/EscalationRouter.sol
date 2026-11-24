@@ -9,6 +9,7 @@ import {IOrgRegistry} from "./interfaces/IOrgRegistry.sol";
 import {IRateRecorder} from "./interfaces/IRateRecorder.sol";
 import {IValueRecorder} from "./interfaces/IValueRecorder.sol";
 import {ITreasurySpender} from "./interfaces/ITreasurySpender.sol";
+import {ISettlementContext} from "./interfaces/ISettlementContext.sol";
 import {SessionRegistry} from "./SessionRegistry.sol";
 import {SessionScopes} from "./SessionScopes.sol";
 
@@ -28,7 +29,7 @@ import {SessionScopes} from "./SessionScopes.sol";
 ///        approve/transferFrom protocol works as-is, a contract that ignores the tokens costs
 ///        nothing, and a failed call costs nothing. Only what `target` kept is charged to the
 ///        value recorder.
-contract EscalationRouter is ReentrancyGuard {
+contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     using SafeERC20 for IERC20;
 
     struct Intent {
@@ -71,6 +72,12 @@ contract EscalationRouter is ReentrancyGuard {
     IValueRecorder public valueRecorder;
     /// @notice Optional per-node value recorder (falls back to `valueRecorder`).
     mapping(address => IValueRecorder) public valueRecorderOf;
+
+    /// @dev The action being executed: its target and what treasury paid it. Set only
+    ///      around the target call in `_finalizeAction`, so a target reads its own
+    ///      payment through `currentSettlement` and nothing else's.
+    address private transient _settlingTarget;
+    uint256 private transient _settlingPaid;
 
     event IntentCreated(uint256 indexed intentId, address indexed agent, address awaitingApprover);
     event IntentEscalated(uint256 indexed intentId, address indexed from, address indexed to);
@@ -359,14 +366,24 @@ contract EscalationRouter is ReentrancyGuard {
             settled = _settlePull(agent, target, value, data);
             if (settled > 0) _recordValue(agent, target, settled);
         } else if (data.length > 0) {
-            _callTarget(target, data);
+            _callTarget(target, data, 0);
         }
         emit ActionExecuted(agent, target, settled, true);
     }
 
     /// @dev Call `target`, bubbling its revert data (`ActionCallFailed` when it has none).
-    function _callTarget(address target, bytes memory data) private {
+    ///      `paid` is what treasury paid for this action, readable by `target` through
+    ///      `currentSettlement` for the length of the call. It is restored afterwards rather
+    ///      than cleared, so a nested action cannot erase the context of the one that
+    ///      contains it.
+    function _callTarget(address target, bytes memory data, uint256 paid) private {
+        address outerTarget = _settlingTarget;
+        uint256 outerPaid = _settlingPaid;
+        _settlingTarget = target;
+        _settlingPaid = paid;
         (bool ok, bytes memory ret) = target.call(data);
+        _settlingTarget = outerTarget;
+        _settlingPaid = outerPaid;
         if (!ok) {
             if (ret.length == 0) revert ActionCallFailed(target);
             assembly ("memory-safe") {
@@ -390,7 +407,7 @@ contract EscalationRouter is ReentrancyGuard {
         uint256 before = token.balanceOf(address(this));
         treasury.spendAllowance(agent, value);
         token.forceApprove(target, value);
-        _callTarget(target, data);
+        _callTarget(target, data, value);
         token.forceApprove(target, 0);
 
         uint256 held = token.balanceOf(address(this));
@@ -403,6 +420,11 @@ contract EscalationRouter is ReentrancyGuard {
         }
         if (left > refund) token.safeTransfer(address(treasury), left - refund);
         settled = value - refund;
+    }
+
+    /// @inheritdoc ISettlementContext
+    function currentSettlement() external view returns (address target, uint256 paid) {
+        return (_settlingTarget, _settlingPaid);
     }
 
     function _recordRate(address agent) private {

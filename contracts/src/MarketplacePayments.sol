@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {ISettlementContext} from "./interfaces/ISettlementContext.sol";
 
 /// @title MarketplacePayments
 /// @notice Stablecoin settlement for marketplace listings: the buyer pays once, the
@@ -47,7 +48,8 @@ contract MarketplacePayments {
     /// @notice EscalationRouter permitted to buy on behalf of an org.
     /// @dev The router settles a call by approving the target for the intent's value, so an
     ///      org-funded purchase pulls the price from the router like any buyer. Restricting
-    ///      `purchaseFor` to this address keeps the buyer naming to the org rail.
+    ///      `purchaseFor` to this address keeps the buyer naming to the org rail. It must
+    ///      implement `ISettlementContext`: `purchaseFor` asks it what this call paid.
     address public settlementRouter;
 
     struct Listing {
@@ -97,6 +99,7 @@ contract MarketplacePayments {
     error SellerCannotBuy(bytes32 listingId);
     error NothingOwed(address payee);
     error NotSettlementRouter(address caller);
+    error DeliveryMismatch(uint256 price, uint256 delivered);
     error TransferAmountMismatch(uint256 expected, uint256 actual);
     error NothingToSweep();
 
@@ -149,15 +152,23 @@ contract MarketplacePayments {
 
     /// @notice Buy `listingId` for `buyer`, paid by the settlement router.
     /// @dev The org-funded rail. EscalationRouter approves this contract for the intent's
-    ///      value before calling, so the price is pulled exactly like `purchase`; whatever the
-    ///      router approved beyond the price stays with it and returns to the agent's allowance.
+    ///      value before calling, so the price is pulled exactly like `purchase`.
+    ///
+    ///      What this call was paid is read from the router (`currentSettlement`), never
+    ///      inferred from this contract's balance or allowance. The payment must equal the
+    ///      price exactly: less would let a purchase ride on tokens nobody paid *for this
+    ///      purchase* (a zero-value proposal), more would approve funds the purchase does not
+    ///      use. Either reverts (`DeliveryMismatch`) and the router undoes the action.
     ///
     ///      The purchase is credited to `buyer`, which the caller supplies. That is safe
     ///      because the caller is spending its own org's allowance: naming a different
     ///      buyer gifts the listing away rather than stealing one.
     function purchaseFor(bytes32 listingId, address buyer, uint256 maxPrice) external {
         if (msg.sender != settlementRouter) revert NotSettlementRouter(msg.sender);
+        (address target, uint256 paid) = ISettlementContext(msg.sender).currentSettlement();
+        uint256 delivered = target == address(this) ? paid : 0;
         uint256 price = _recordPurchase(listingId, buyer, maxPrice);
+        if (delivered != price) revert DeliveryMismatch(price, delivered);
         if (price > 0) _pullExact(msg.sender, price);
     }
 

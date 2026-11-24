@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {MarketplacePayments} from "../src/MarketplacePayments.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {MockSettlementRouter} from "./mocks/MockSettlementRouter.sol";
 
 /// @dev Handler driving arbitrary list / purchase / withdraw / fee-change sequences.
 contract MarketplaceHandler is Test {
@@ -21,6 +22,8 @@ contract MarketplaceHandler is Test {
     ///      balance must be exactly the difference at all times.
     uint256 public ghostPaidIn;
     uint256 public ghostPaidOut;
+    /// @dev Priced listings obtained through the router with no payment. Must stay zero.
+    uint256 public ghostFreeRides;
 
     constructor(MarketplacePayments market_, MockUSDC usdc_, address governor_, address platform_) {
         market = market_;
@@ -66,28 +69,43 @@ contract MarketplaceHandler is Test {
         ghostPaidIn += price;
     }
 
-    /// The org-funded rail: the router approves the market (possibly beyond the price),
-    /// then settlement pulls the price.
-    function buyViaRouter(uint256 buyerSeed, uint256 idSeed, bool overApprove) external {
-        address router = market.settlementRouter();
-        if (router == address(0)) return;
+    /// The org-funded rail: the router pays exactly the price (approving the market for
+    /// it), then settlement pulls it.
+    function buyViaRouter(uint256 buyerSeed, uint256 idSeed) external {
         address buyer = buyers[buyerSeed % buyers.length];
         bytes32 id = listingIds[idSeed % listingIds.length];
         (address seller, uint256 price, bool active) = market.listings(id);
         if (seller == address(0) || !active || seller == buyer) return;
         if (market.hasPurchased(id, buyer)) return;
 
-        uint256 approved = overApprove ? price + 1e6 : price;
-        if (approved > 0) {
+        MockSettlementRouter router = MockSettlementRouter(market.settlementRouter());
+        if (price > 0) {
             vm.prank(buyers[0]);
-            usdc.transfer(router, approved);
+            usdc.transfer(address(router), price);
         }
-        vm.prank(router);
-        usdc.approve(address(market), approved);
-
-        vm.prank(router);
-        market.purchaseFor(id, buyer, price);
+        router.settle(
+            usdc, address(market), price, abi.encodeCall(market.purchaseFor, (id, buyer, price))
+        );
         ghostPaidIn += price;
+    }
+
+    /// A zero-value proposal trying to buy a priced listing with whatever is lying around.
+    function freeRideViaRouter(uint256 buyerSeed, uint256 idSeed) external {
+        address buyer = buyers[buyerSeed % buyers.length];
+        bytes32 id = listingIds[idSeed % listingIds.length];
+        (address seller, uint256 price, bool active) = market.listings(id);
+        if (seller == address(0) || !active || seller == buyer || price == 0) return;
+        if (market.hasPurchased(id, buyer)) return;
+
+        MockSettlementRouter router = MockSettlementRouter(market.settlementRouter());
+        try router.settle(
+            usdc,
+            address(market),
+            0,
+            abi.encodeCall(market.purchaseFor, (id, buyer, type(uint256).max))
+        ) {
+            ghostFreeRides++;
+        } catch {}
     }
 
     /// Someone sends tokens straight to the market, outside any purchase.
@@ -99,7 +117,7 @@ contract MarketplaceHandler is Test {
         ghostPaidIn += amount;
     }
 
-    /// Governance recovering stray/over-delivered funds must not break solvency.
+    /// Governance recovering stray funds must not break solvency.
     function sweep() external {
         if (market.unallocatedBalance() == 0) return;
         vm.prank(governor);
@@ -160,8 +178,9 @@ contract MarketplacePaymentsInvariantTest is StdInvariant, Test {
         }
 
         // Exercise the org-funded rail alongside the direct one.
+        address router = address(new MockSettlementRouter());
         vm.prank(governor);
-        market.setSettlementRouter(makeAddr("router"));
+        market.setSettlementRouter(router);
 
         targetContract(address(handler));
     }
@@ -187,6 +206,12 @@ contract MarketplacePaymentsInvariantTest is StdInvariant, Test {
             sum += market.owed(handler.sellers(i));
         }
         assertEq(sum, market.totalOwed());
+    }
+
+    /// @notice No priced listing is ever obtained through the router without paying for
+    ///         it, however much stray balance the contract holds.
+    function invariant_noFreeRideOnStrayBalance() public view {
+        assertEq(handler.ghostFreeRides(), 0);
     }
 
     /// @notice The take rate can never exceed the ceiling sellers listed under.
