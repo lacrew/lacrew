@@ -169,7 +169,7 @@ function cmdDeploy(args: string[]): void {
 
   // contracts/lib is gitignored, so a fresh clone has no Solidity dependencies
   // and forge fails with an unhelpful "Source ... not found".
-  const missingLibs = [
+  const missingLibs: [string, string][] = [
     ["forge-std", "foundry-rs/forge-std"],
     ["openzeppelin-contracts", "OpenZeppelin/openzeppelin-contracts@v5.3.0"],
   ].filter(([dir]) => !existsSync(join(contractsDir, "lib", dir)));
