@@ -59,6 +59,7 @@ export const rootRotationScenarios: Scenario[] = [
   governed("a compromised root is rotated by a High-tier proposal", (b) => {
     b.pass({ to: "@registry", fn: "addNode", args: ["manager", KIND.manager, "root"] });
     b.pass({ to: "@registry", fn: "addNode", args: ["human2", KIND.human, "root"] });
+    b.pass({ to: "@registry", fn: "addNode", args: ["worker", KIND.worker, "manager"] });
     b.pass({ to: "@gov", fn: "admitHuman", args: ["human2", 2n] }, HIGH);
     const sessionId = b.session();
 
@@ -80,8 +81,13 @@ export const rootRotationScenarios: Scenario[] = [
     // One proposal moves every root and the seat together.
     b.pass({ to: "@gov", fn: "rotateRoot", args: ["human2", ROOTED] }, HIGH, ["root", "human2"]);
     b.expect({
-      tree: ["human2", "manager"],
-      nodes: { root: null, human2: { parent: null }, manager: { parent: "human2" } },
+      tree: ["human2", "manager", "worker"],
+      nodes: {
+        root: null,
+        human2: { parent: null },
+        manager: { parent: "human2" },
+        worker: { parent: "manager" },
+      },
       seats: {
         human2: { power: 2n, role: "human" },
         root: { power: 0n, role: "none" },
