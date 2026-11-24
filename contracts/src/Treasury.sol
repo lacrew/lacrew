@@ -8,6 +8,15 @@ import {ITreasurySpender} from "./interfaces/ITreasurySpender.sol";
 /// @title Treasury
 /// @notice Holds org ERC-20 funds and streams allowances downward on epoch schedules.
 /// @dev Token stays in this contract until spent; `allowanceBalance` is working-capital bookkeeping.
+///
+///      Asset assumptions. The bookkeeping (`totalReserved` against `balanceOf`) holds only for
+///      a token whose transfers move exactly the amount asked and whose balances change only
+///      through transfers. Every movement here is measured, so a fee-on-transfer token reverts
+///      (`TransferAmountMismatch`) instead of quietly reserving more than the treasury holds.
+///      A rebasing token cannot be caught at transfer time: a negative rebase shows up as
+///      `shortfall()`, and such tokens are unsupported. A token with an issuer blocklist (USDC,
+///      USDT) can freeze this contract outright; nothing onchain routes around that, which is
+///      why each asset gets its own treasury (see SPEC §4.2).
 contract Treasury is ITreasurySpender {
     using SafeERC20 for IERC20;
 
@@ -32,12 +41,15 @@ contract Treasury is ITreasurySpender {
     event Deposited(address indexed from, uint256 amount);
     event AllowanceStreamed(address indexed node, uint256 amount, uint64 epoch);
     event AllowanceSpent(address indexed node, uint256 amount, address indexed to);
+    event AllowanceRefunded(address indexed node, uint256 amount);
 
     error InsufficientAllowance(address node, uint256 requested, uint256 available);
     error InsufficientTreasury(uint256 requested, uint256 available);
     error NotSpender(address caller);
     error NotAuthorized(address caller);
     error ZeroAddress();
+    /// @dev The token moved a different amount than requested: fee-on-transfer or similar.
+    error TransferAmountMismatch(uint256 expected, uint256 actual);
 
     constructor(address orgRegistry_, address token_, address spender_) {
         if (orgRegistry_ == address(0) || token_ == address(0)) revert ZeroAddress();
@@ -83,7 +95,7 @@ contract Treasury is ITreasurySpender {
 
     /// @notice Deposit ERC-20 into the treasury (caller must approve first).
     function deposit(uint256 amount) external {
-        token.safeTransferFrom(msg.sender, address(this), amount);
+        _pullExact(msg.sender, amount);
         emit Deposited(msg.sender, amount);
     }
 
@@ -120,9 +132,30 @@ contract Treasury is ITreasurySpender {
         _spend(node, amount, msg.sender);
     }
 
+    /// @inheritdoc ITreasurySpender
+    /// @dev The router returns what a pulling target left behind. The tokens come back by
+    ///      transferFrom, measured, before the allowance is restored, so a refund can never
+    ///      reserve more than actually arrived.
+    function refundAllowance(address node, uint256 amount) external {
+        if (msg.sender != spender) revert NotSpender(msg.sender);
+        if (node == address(0)) revert ZeroAddress();
+        _pullExact(msg.sender, amount);
+        allowanceBalance[node] += amount;
+        totalReserved += amount;
+        emit AllowanceRefunded(node, amount);
+    }
+
     function liquidBalance() public view returns (uint256) {
         uint256 bal = token.balanceOf(address(this));
         return bal > totalReserved ? bal - totalReserved : 0;
+    }
+
+    /// @notice How far the balance has fallen below what is reserved. Zero for a vanilla
+    ///         ERC-20; non-zero means the token changed balances outside a transfer (a negative
+    ///         rebase, a seizure) and the last spenders would find their allowance unbacked.
+    function shortfall() external view returns (uint256) {
+        uint256 bal = token.balanceOf(address(this));
+        return totalReserved > bal ? totalReserved - bal : 0;
     }
 
     /// @dev Governor once bound; the deployer until then.
@@ -136,7 +169,17 @@ contract Treasury is ITreasurySpender {
         if (available < amount) revert InsufficientAllowance(node, amount, available);
         allowanceBalance[node] = available - amount;
         totalReserved -= amount;
+        uint256 before = token.balanceOf(to);
         token.safeTransfer(to, amount);
+        uint256 received = token.balanceOf(to) - before;
+        if (received != amount) revert TransferAmountMismatch(amount, received);
         emit AllowanceSpent(node, amount, to);
+    }
+
+    function _pullExact(address from, uint256 amount) private {
+        uint256 before = token.balanceOf(address(this));
+        token.safeTransferFrom(from, address(this), amount);
+        uint256 received = token.balanceOf(address(this)) - before;
+        if (received != amount) revert TransferAmountMismatch(amount, received);
     }
 }
