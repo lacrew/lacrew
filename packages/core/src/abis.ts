@@ -54,6 +54,32 @@ export const orgRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_CHILDREN",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_DEPTH",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "addNode",
     "inputs": [
       {
@@ -356,6 +382,17 @@ export const orgRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "MaxDepthExceeded",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "NodeAlreadyExists",
     "inputs": [
       {
@@ -382,6 +419,17 @@ export const orgRegistryAbi = [
     "inputs": [
       {
         "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyChildren",
+    "inputs": [
+      {
+        "name": "parent",
         "type": "address",
         "internalType": "address"
       }
@@ -4811,6 +4859,19 @@ export const epochStreamerAbi = [
   },
   {
     "type": "function",
+    "name": "MAX_RECIPIENTS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "currentEpoch",
     "inputs": [],
     "outputs": [
@@ -5111,6 +5172,11 @@ export const epochStreamerAbi = [
         "internalType": "address"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "TooManyRecipients",
+    "inputs": []
   },
   {
     "type": "error",

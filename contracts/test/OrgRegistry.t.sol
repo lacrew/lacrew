@@ -141,4 +141,61 @@ contract OrgRegistryTest is Test {
         registry.reparent(address(0), root);
         vm.stopPrank();
     }
+
+    function test_capsChildrenPerNode() public {
+        uint256 max = registry.MAX_CHILDREN();
+        vm.startPrank(root);
+        for (uint256 i = 0; i < max; i++) {
+            registry.addNode(address(uint160(1000 + i)), IOrgRegistry.NodeKind.WorkerAgent, root);
+        }
+        vm.expectRevert(abi.encodeWithSelector(OrgRegistry.TooManyChildren.selector, root));
+        registry.addNode(address(uint160(5000)), IOrgRegistry.NodeKind.WorkerAgent, root);
+        vm.stopPrank();
+    }
+
+    function test_capsDepth() public {
+        uint256 max = registry.MAX_DEPTH();
+        address parent = root;
+        vm.startPrank(root);
+        for (uint256 i = 0; i < max; i++) {
+            address n = address(uint160(1000 + i));
+            registry.addNode(n, IOrgRegistry.NodeKind.ManagerAgent, parent);
+            parent = n;
+        }
+        address tooDeep = address(uint160(9000));
+        vm.expectRevert(abi.encodeWithSelector(OrgRegistry.MaxDepthExceeded.selector, tooDeep));
+        registry.addNode(tooDeep, IOrgRegistry.NodeKind.WorkerAgent, parent);
+        vm.stopPrank();
+    }
+
+    function test_removeNodeRevertsWhenRewireOverflowsParent() public {
+        uint256 max = registry.MAX_CHILDREN();
+        address mgr = address(uint160(1));
+        vm.startPrank(root);
+        registry.addNode(mgr, IOrgRegistry.NodeKind.ManagerAgent, root);
+        for (uint256 i = 0; i < max; i++) {
+            registry.addNode(address(uint160(1000 + i)), IOrgRegistry.NodeKind.WorkerAgent, mgr);
+        }
+        for (uint256 i = 0; i < max - 1; i++) {
+            registry.addNode(address(uint160(5000 + i)), IOrgRegistry.NodeKind.WorkerAgent, root);
+        }
+        vm.expectRevert(abi.encodeWithSelector(OrgRegistry.TooManyChildren.selector, root));
+        registry.removeNode(mgr);
+        vm.stopPrank();
+    }
+
+    function test_reparentRespectsChildCap() public {
+        uint256 max = registry.MAX_CHILDREN();
+        address w = address(uint160(1));
+        vm.startPrank(root);
+        registry.addNode(w, IOrgRegistry.NodeKind.ManagerAgent, root);
+        address mgr = address(uint160(2));
+        registry.addNode(mgr, IOrgRegistry.NodeKind.ManagerAgent, root);
+        for (uint256 i = 0; i < max; i++) {
+            registry.addNode(address(uint160(1000 + i)), IOrgRegistry.NodeKind.WorkerAgent, mgr);
+        }
+        vm.expectRevert(abi.encodeWithSelector(OrgRegistry.TooManyChildren.selector, mgr));
+        registry.reparent(w, mgr);
+        vm.stopPrank();
+    }
 }

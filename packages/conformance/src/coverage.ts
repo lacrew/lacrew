@@ -60,6 +60,12 @@ export const NOT_SIMULATED: Record<string, string> = {
     "OpenZeppelin ReentrancyGuard on propose/resolve; raised only when a call target re-enters the router, which the sandbox kernel does not model (its targets are not contracts that can call back). Covered by RouterReentrancy.t.sol.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
+  "OrgRegistry.TooManyChildren":
+    "Gas guard: caps direct children per node at MAX_CHILDREN (100) so removeNode's re-parent loop fits a block. Reaching it needs over 100 seats; the sandbox kernel does not model the cap. Covered by OrgRegistry.t.sol.",
+  "OrgRegistry.MaxDepthExceeded":
+    "Gas guard: caps tree depth at MAX_DEPTH (32) so the ancestor walk fits a block. Reaching it needs a chain over 32 seats deep; the sandbox kernel does not model the cap. Covered by OrgRegistry.t.sol.",
+  "EpochStreamer.TooManyRecipients":
+    "Gas guard: caps payroll recipients at MAX_RECIPIENTS (100) so a full epoch fits a block. Reaching it needs over 100 recipients; the sandbox kernel does not model the cap. Covered by EpochStreamer.t.sol.",
   "Treasury.SafeERC20FailedOperation":
     "SafeERC20 guard for tokens that return false. MockUSDC reverts with its own error instead.",
 };
