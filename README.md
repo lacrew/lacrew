@@ -47,6 +47,11 @@ loop below for onchain enforcement.
 
 `pnpm dev` does **not** start a blockchain. For onchain escalate → approve (USDC spend):
 
+> **Stop any earlier `pnpm dev` / `pnpm dev:sandbox` first.** Only one orchestrator can
+> hold `:8788`; a leftover one keeps answering while the new one fails with `EADDRINUSE`.
+> Check with `lsof -i :8788`, and confirm `curl http://127.0.0.1:8788/health` reports
+> `"mode":"onchain"` once Terminal C is up.
+
 ```bash
 # Terminal A — local chain
 anvil
@@ -61,10 +66,17 @@ export ANVIL_RPC=http://127.0.0.1:8545 CHAIN_ID=31337
 export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 export MANAGER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 pnpm --filter @lacrew/orchestrator dev
-# POST http://127.0.0.1:8788/tick  → pending ESCALATE intent
-# Approvals UI (lacrew.xyz) → Approve → USDC to x402Target
+curl -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8788/tick
+# → {"intentId":"1","verdict":"ESCALATE", ...}
 
-# Terminal D — event indexer (optional)
+# Terminal D — approve it as the manager (signs EscalationRouter.resolve)
+export MANAGER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
+pnpm --filter @lacrew/cli exec tsx src/index.ts approve 1 --rpc http://127.0.0.1:8545
+# → "resolved": true, "approved": true, "verdict": "ALLOW", plus a txHash;
+#   75 USDC (75000000) lands on x402Target. Replace `1` with the intentId from /tick.
+# Optional hosted UI: Approvals at lacrew.xyz does the same thing.
+
+# Terminal E — event indexer (optional)
 pnpm dev:indexer
 ```
 
