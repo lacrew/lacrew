@@ -18,14 +18,14 @@ interface IPolicyModule {
 
 Standard modules (reference contracts):
 
-| Module                  | Verdict behavior                                                                      |
-| ----------------------- | ------------------------------------------------------------------------------------- |
-| `SpendCapPolicy`        | ESCALATE over per-agent / default cap                                                 |
-| `WhitelistPolicy`       | DENY non-whitelisted targets                                                          |
-| `RateLimitPolicy`       | ESCALATE when window count ≥ max (router calls `record`)                              |
+| Module                  | Verdict behavior                                                                              |
+| ----------------------- | --------------------------------------------------------------------------------------------- |
+| `SpendCapPolicy`        | ESCALATE over per-agent / default cap                                                         |
+| `WhitelistPolicy`       | DENY non-whitelisted targets                                                                  |
+| `RateLimitPolicy`       | ESCALATE when window count ≥ max (router calls `record`)                                      |
 | `CumulativeValuePolicy` | ESCALATE when settled value in the window would cross the budget (router calls `recordValue`) |
-| `TimeWindowPolicy`      | DENY outside daily UTC window                                                         |
-| Custom                  | Third-party `IPolicyModule` implementations                                           |
+| `TimeWindowPolicy`      | DENY outside daily UTC window                                                                 |
+| Custom                  | Third-party `IPolicyModule` implementations                                                   |
 
 `PolicyStack` composes modules: **first DENY wins**; any ESCALATE is sticky; else ALLOW.
 
