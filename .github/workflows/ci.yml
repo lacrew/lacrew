@@ -138,28 +138,25 @@ jobs:
   # row mapping forgets to write round-trips there no matter what — which is how
   # a message's `blocks` shipped writing and reading as undefined while every
   # conversation test passed. This job is the pass that would have caught it.
+  #
+  # The database is Supabase Postgres (the Supabase image, started by the CLI
+  # from supabase/config.toml), not a stock postgres image — the hosted cloud
+  # runs on Supabase, so the stores are proven against what they deploy to.
   stores:
     name: Stores (Postgres)
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:19
-        env:
-          POSTGRES_USER: lacrew
-          POSTGRES_PASSWORD: lacrew
-          POSTGRES_DB: lacrew
-        ports:
-          - 5432:5432
-        # Without this the first query races the server's own startup.
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
     env:
-      DATABASE_URL: postgres://lacrew:lacrew@127.0.0.1:5432/lacrew
+      # Supabase CLI defaults: db port 54322, user/password/db postgres.
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:54322/postgres
     steps:
       - uses: actions/checkout@v7
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pinned to the CLI that generated supabase/config.toml; v3 renamed keys.
+          version: 2.72.7
+      # Postgres only — no auth/storage/studio containers. `db start` blocks
+      # until the database is healthy, so the first query cannot race startup.
+      - run: supabase db start
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v7
         with:

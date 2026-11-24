@@ -18,6 +18,7 @@
     "dev:indexer": "pnpm --filter @lacrew/indexer dev",
     "dev:all": "turbo run dev --filter=@lacrew/orchestrator --filter=@lacrew/indexer",
     "db:up": "docker compose up -d",
+    "db:supabase": "supabase db start",
     "db:migrate": "pnpm --filter @lacrew/db db:migrate",
     "test": "turbo run test",
     "lint": "turbo run lint",
