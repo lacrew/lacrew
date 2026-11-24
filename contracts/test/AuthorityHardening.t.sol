@@ -214,7 +214,9 @@ contract AuthorityHardeningTest is Test {
     function test_lowTierCannotWithdraw() public {
         bytes memory data = abi.encodeCall(Treasury.withdraw, (stranger, 1));
         vm.expectRevert(GovernanceModule.WithdrawNotHighTier.selector);
+        vm.prank(root);
         gov.propose(GovernanceModule.Tier.Low, address(treasury), data);
+        vm.prank(root);
         gov.propose(GovernanceModule.Tier.High, address(treasury), data);
     }
 
