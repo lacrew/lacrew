@@ -57,7 +57,8 @@ contract GovernanceModule {
         Active,
         Executed,
         Vetoed,
-        Defeated
+        Defeated,
+        Expired
     }
 
     /// @notice Seat classification. Agents review; humans decide high-tier final say.
@@ -127,6 +128,10 @@ contract GovernanceModule {
     uint256 public constant MIN_VOTING_PERIOD = 1 hours;
     uint256 public constant MAX_VOTING_PERIOD = 30 days;
     uint256 public constant MAX_TIMELOCK = 30 days;
+    /// @notice How long a proposal stays executable once voting has closed and its delay has
+    ///         elapsed. A stale yes-majority cannot be cashed in later, after the seats, quorum
+    ///         or circumstances it was cast under have changed.
+    uint256 public constant EXECUTION_WINDOW = 14 days;
 
     /// @notice `setGovernor(address)` — the selector every governed contract (OrgRegistry,
     ///         Treasury, EscalationRouter, MarketplacePayments, the policies) uses to hand
@@ -168,6 +173,7 @@ contract GovernanceModule {
     event ProposalExecuted(uint256 indexed proposalId);
     event ProposalVetoed(uint256 indexed proposalId, address indexed vetoer);
     event ProposalDefeated(uint256 indexed proposalId);
+    event ProposalExpired(uint256 indexed proposalId);
     event VotingPowerUpdated(address indexed voter, uint256 power, SeatRole role);
     event HumanAdmitted(address indexed human, uint256 power);
     event HumanRemoved(address indexed human);
@@ -541,6 +547,13 @@ contract GovernanceModule {
     function execute(uint256 proposalId) external {
         Proposal storage p = proposals[proposalId];
         if (p.state != ProposalState.Active) revert ProposalNotActive(proposalId);
+
+        uint256 executableUntil = (p.eta > p.deadline ? p.eta : p.deadline) + EXECUTION_WINDOW;
+        if (block.timestamp > executableUntil) {
+            p.state = ProposalState.Expired;
+            emit ProposalExpired(proposalId);
+            return;
+        }
 
         bool high = p.tier == Tier.High;
         if (high) {
