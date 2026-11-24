@@ -137,6 +137,11 @@ export interface ProtocolClient {
   revokeSession(sessionId: string): Promise<WriteRef>;
   setIssuer(issuer: Address): Promise<WriteRef>;
   getIssuer(): Promise<Address>;
+  /**
+   * `SessionRegistry.humanRoot`, read now. Governance can rotate it, so the
+   * deploy-time address book's `humanRoot` is not the answer after a rotation.
+   */
+  getSessionRoot(): Promise<Address>;
 
   // ——— EpochStreamer ———
   getCurrentEpoch(asset?: string): Promise<number>;

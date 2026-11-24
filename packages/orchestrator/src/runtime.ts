@@ -1548,11 +1548,26 @@ export class CrewRuntime {
     return { revoked: { sessionId, ...revoked }, session, preserved: Boolean(prior) };
   }
 
-  /** The chain's `SessionRegistry.humanRoot`, or null when unreadable. */
+  /**
+   * The chain's `SessionRegistry.humanRoot`, read live, or null when unreadable.
+   * Governance can rotate the root, so the address book's deploy-time
+   * `humanRoot` would keep vouching for a retired key; it is only the answer
+   * for a client with no session registry to ask.
+   */
   async humanRootAddress(): Promise<`0x${string}` | null> {
     if (!isProtocolClient(this.client)) return null;
+    const zero = "0x0000000000000000000000000000000000000000";
+    if (this.client.addresses.sessionRegistry) {
+      let onchain: `0x${string}` | null = null;
+      try {
+        onchain = await this.client.getSessionRoot();
+      } catch {
+        onchain = null;
+      }
+      return onchain && onchain !== zero ? onchain : null;
+    }
     const addr = this.client.addresses.humanRoot;
-    return addr && addr !== "0x0000000000000000000000000000000000000000" ? addr : null;
+    return addr && addr !== zero ? addr : null;
   }
 
   /* ——— standing agent controls (PRD F1.7) ——— */

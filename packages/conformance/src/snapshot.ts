@@ -54,6 +54,7 @@ export async function snapshot(
     pending: await section(() => client.getPendingIntents()),
     sessions,
     issuer: await section(() => client.getIssuer()),
+    sessionRoot: await section(() => client.getSessionRoot()),
     epoch: await section(() => client.getCurrentEpoch()),
     grants: await section(() => client.getGrants()),
     proposals: await section(() => client.getProposals()),

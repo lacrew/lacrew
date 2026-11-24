@@ -858,6 +858,10 @@ export class SandboxLacrewClient implements ProtocolClient {
     return this.state.world.sessionRegistry.issuer;
   }
 
+  async getSessionRoot(): Promise<Address> {
+    return this.state.world.sessionRegistry.humanRoot;
+  }
+
   // ——— EpochStreamer ———
 
   async getCurrentEpoch(asset?: string): Promise<number> {

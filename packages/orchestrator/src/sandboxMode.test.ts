@@ -1000,6 +1000,19 @@ describe("an orchestrator on a chain is unchanged", () => {
     });
   }
 
+  it("reads the root from the chain, not the address book, so a rotation is followed", async () => {
+    // Governance rotated the root to addr("e"); the booked addr("a") is retired.
+    const rotated = chainRuntime({ getSessionRoot: async () => addr("e") });
+    assert.equal(await rotated.humanRootAddress(), addr("e"));
+    // Unreadable is unknown, never the stale booked key.
+    const down = chainRuntime({
+      getSessionRoot: async () => {
+        throw new Error("rpc down");
+      },
+    });
+    assert.equal(await down.humanRootAddress(), null);
+  });
+
   it("answers not_sandbox on every simulator control, and starts no simulator", async () => {
     const runtime = chainRuntime();
     const api = appFor(runtime);
