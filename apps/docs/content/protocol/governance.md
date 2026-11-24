@@ -13,17 +13,17 @@ LaCrew splits decisions into two regimes and refuses to confuse them.
 
 ## Risk tiers
 
-- **Low tier** — execute as soon as all-seat yes-weight meets the effective quorum (no timelock).
+- **Low tier** — only actions on the curated `lowTierSelector` allow-list (seeded with an agent hire: `OrgRegistry.addNode` with a non-`HumanRoot` kind). Executes once all-seat yes-weight meets the effective quorum **and** `lowTierDelay` (default 1 day) has passed since it was proposed, so every human seat has a window to vote it down or veto it. Unanimous human yes skips the delay. Every other action (firing, suspending, reparenting, treasury spenders and streams, router wiring and policies, grants, governor transfers, this module) is High tier.
 - **High tier** — treasury-touching or policy-touching. Voting deadline + timelock (`eta`, default 1 day); any funded human seat may **`veto`** before execute. When **all** human voting weight has voted yes, execution skips the timelock (`unanimityFastPath`, default on) — the delay protects humans who have not weighed in, and unanimity means there are none left.
 
 ## Defeat
 
-After the voting deadline, `execute` closes a proposal with more weight against than for as `Defeated` instead of running it. Each tier is defeated by the electorate that can pass it:
+A proposal executes only while its yes-weight exceeds its no-weight, and a tie does not carry. While voting is open, `execute` on a tally that does not carry reverts `Outvoted`, and the proposal stays open for more votes. After the voting deadline, `execute` closes it as `Defeated` instead. Each tier is carried and defeated by the electorate that can pass it:
 
-| Tier | Passes on                               | Defeated when (after the deadline) |
-| ---- | --------------------------------------- | ---------------------------------- |
-| Low  | all-seat yes-weight meets the quorum    | `noVotes > yesVotes`               |
-| High | human yes-weight meets the human quorum | `noHumanVotes > yesHumanVotes`     |
+| Tier | Passes on                               | Carried while                  |
+| ---- | --------------------------------------- | ------------------------------ |
+| Low  | all-seat yes-weight meets the quorum    | `yesVotes > noVotes`           |
+| High | human yes-weight meets the human quorum | `yesHumanVotes > noHumanVotes` |
 
 Agent seats may vote on a high-tier proposal, and their weight shows in `yesVotes` / `noVotes`, but it decides nothing there: it cannot defeat a proposal the humans backed, and it cannot rescue one the humans voted down.
 
@@ -31,7 +31,7 @@ Agent seats may vote on a high-tier proposal, and their weight shows in `yesVote
 
 ## Execution
 
-Proposals bind `target` + `calldata`. On `execute`, the module calls `target.call(data)` after quorum (and high-tier eta or human unanimity). OrgRegistry / Treasury accept mutations from the governor address after bootstrap `setGovernor`. Proposals may target the GovernanceModule itself to retune quorums, weights, or timing — but only at High tier, so agent seats can never re-weight the electorate through a low-tier vote.
+Only a seated voter (`votingPower > 0`), or the root while it may act, can `propose`. Proposals bind `target` + `calldata`. On `execute`, the module calls `target.call(data)` after quorum and the tier's `eta` (high-tier timelock or low-tier delay) or human unanimity. OrgRegistry / Treasury accept mutations from the governor address after bootstrap `setGovernor`. Proposals may target the GovernanceModule itself to retune quorums, weights, or timing — but only at High tier, so agent seats can never re-weight the electorate through a low-tier vote.
 
 ## Voting power
 
@@ -70,6 +70,8 @@ All parameters are onchain. Everything above the seat rows is adjustable by the 
 | `votingPeriod`                            | 3 days (bounds 1h–30d)                   | `setTiming`                                    |
 | `highTierTimelock`                        | 1 day (bounds 0–30d)                     | `setTiming`                                    |
 | `unanimityFastPath`                       | on                                       | `setUnanimityFastPath`                         |
+| `lowTierDelay`                            | 1 day (bounds 0–30d)                     | `setLowTierDelay`                              |
+| `lowTierSelector` (low-tier allow-list)   | `addNode` (never `setGovernor`)          | `setLowTierSelector`                           |
 | Agent seat weight                         | manager: 1 agent (deploy script)         | `setVotingPower`                               |
 | Human seat weight / roster                | root: 2 human (constructor `rootPower_`) | `admitHuman` / `removeHuman` (governance only) |
 
