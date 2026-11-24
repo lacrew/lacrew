@@ -81,7 +81,7 @@ export const NOT_SIMULATED: Record<string, string> = {
   "EscalationRouter.SafeERC20FailedOperation":
     "SafeERC20 guard on the router's approvals and transfers, for tokens that return false. MockUSDC never does.",
   "EscalationRouter.ReentrancyGuardReentrantCall":
-    "OpenZeppelin ReentrancyGuard on propose/resolve, raised when a call target re-enters the router. The sandbox kernel does not model callbacks (its targets cannot call back), and a settlement target's own call swallows the revert (callOk false). Covered by RouterReentrancy.t.sol and PullSettlement.t.sol.",
+    "OpenZeppelin ReentrancyGuard on propose/resolve, raised when a call target re-enters the router. The sandbox kernel does not model callbacks (its targets cannot call back), so no target can re-enter; a failed target call reverts the whole action. Covered by RouterReentrancy.t.sol and PullSettlement.t.sol.",
 };
 
 /**

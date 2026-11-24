@@ -77,6 +77,8 @@ contract EscalationRouter is ReentrancyGuard {
     event IntentResolved(uint256 indexed intentId, bool approved);
     /// @notice `value` is what the action cost the agent's allowance: the full value for a
     ///         payment, and for a pull-settled call only what the target kept.
+    /// @dev `callOk` is always true: a failing target call reverts the whole action
+    ///      (see `_finalizeAction`). The field stays for ABI stability.
     event ActionExecuted(
         address indexed agent,
         address indexed target,
@@ -117,6 +119,8 @@ contract EscalationRouter is ReentrancyGuard {
     error ProtectedTarget(address target);
     error ZeroAddress();
     error EnforcedPause();
+    /// @notice The target call reverted without revert data; the whole action is undone.
+    error ActionCallFailed(address target);
     error AlreadyPaused();
     error NotPaused();
 
@@ -335,7 +339,6 @@ contract EscalationRouter is ReentrancyGuard {
     function _finalizeAction(address agent, address target, uint256 value, bytes memory data) private {
         if (paused) revert EnforcedPause();
         uint256 settled = value;
-        bool callOk = true;
         // A pull settlement records its value after the call, once it knows what the
         // target kept. Every other path charges the value before the call, as before.
         bool pull = value > 0 && data.length > 0 && address(treasury) != address(0);
@@ -349,30 +352,45 @@ contract EscalationRouter is ReentrancyGuard {
         // inside the RateLimitPolicy window.
         _recordRate(agent);
 
+        // Payment and action are atomic: if the target call fails, the whole
+        // propose/resolve reverts, so the spend and the counts above are undone, the
+        // intent stays unresolved, and no funds are left stranded at a target that never acted.
         if (pull) {
-            (settled, callOk) = _settlePull(agent, target, value, data);
+            settled = _settlePull(agent, target, value, data);
             if (settled > 0) _recordValue(agent, target, settled);
         } else if (data.length > 0) {
-            (callOk, ) = target.call(data);
+            _callTarget(target, data);
         }
-        emit ActionExecuted(agent, target, settled, callOk);
+        emit ActionExecuted(agent, target, settled, true);
+    }
+
+    /// @dev Call `target`, bubbling its revert data (`ActionCallFailed` when it has none).
+    function _callTarget(address target, bytes memory data) private {
+        (bool ok, bytes memory ret) = target.call(data);
+        if (!ok) {
+            if (ret.length == 0) revert ActionCallFailed(target);
+            assembly ("memory-safe") {
+                revert(add(ret, 0x20), mload(ret))
+            }
+        }
     }
 
     /// @dev Pull settlement. The router holds `value` only for the length of the call, and
-    ///      `target`'s approval never outlives it. Balance is measured against what the router
-    ///      held before, so stray tokens sent to the router are never spent or refunded.
-    ///      Tokens `target` sent back count as unpulled. Anything above `value` (a target
-    ///      paying the router more than it took) goes to the treasury as unreserved funds
-    ///      rather than inflating the agent's allowance.
+    ///      `target`'s approval never outlives it. A failed call reverts the whole action
+    ///      (`_callTarget`). Balance is measured against what the router held before, so
+    ///      stray tokens sent to the router are never spent or refunded. Tokens a successful
+    ///      `target` left unpulled or sent back go back to the agent's allowance. Anything
+    ///      above `value` (a target paying the router more than it took) goes to the treasury
+    ///      as unreserved funds rather than inflating the agent's allowance.
     function _settlePull(address agent, address target, uint256 value, bytes memory data)
         private
-        returns (uint256 settled, bool callOk)
+        returns (uint256 settled)
     {
         IERC20 token = treasury.token();
         uint256 before = token.balanceOf(address(this));
         treasury.spendAllowance(agent, value);
         token.forceApprove(target, value);
-        (callOk, ) = target.call(data);
+        _callTarget(target, data);
         token.forceApprove(target, 0);
 
         uint256 held = token.balanceOf(address(this));

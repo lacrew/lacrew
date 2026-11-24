@@ -1814,6 +1814,17 @@ export const escalationRouterAbi = [
   },
   {
     "type": "error",
+    "name": "ActionCallFailed",
+    "inputs": [
+      {
+        "name": "target",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "AlreadyPaused",
     "inputs": []
   },

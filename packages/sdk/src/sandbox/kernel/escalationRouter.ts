@@ -3,7 +3,7 @@
  * `contracts/src/EscalationRouter.sol`.
  */
 
-import { asSender, emit, externalCall } from "./frame.js";
+import { asSender, emit } from "./frame.js";
 import * as orgRegistry from "./orgRegistry.js";
 import * as policies from "./policies.js";
 import { Verdict, type VerdictValue } from "./policies.js";
@@ -280,36 +280,48 @@ export function intents(ctx: Ctx, intentId: bigint): IntentState {
 function finalizeAction(ctx: Ctx, agent: Address, target: Address, value: bigint, data: Hex): void {
   const state = ctx.world.escalationRouter;
   const self = ctx.world.addresses.escalationRouter;
-  let callOk = true;
   let settled = value;
   if (state.treasury !== ZERO_ADDRESS && value > 0n) {
     if (state.treasury !== ctx.world.addresses.treasury) throw new SimRevert(EVM_REVERT);
     if (byteLength(data) === 0) {
       treasury.spendAllowance(asSender(ctx, self), agent, value, target);
     } else {
-      ({ settled, callOk } = settlePull(ctx, agent, target, value, data));
+      settled = settlePull(ctx, agent, target, value, data);
     }
   } else if (byteLength(data) > 0) {
-    callOk = externalCall(ctx, self, target, data);
+    callTarget(ctx, target, data);
   }
   recordRate(ctx, agent);
   // `value` on the event is what the action cost: for a pull, only what the target kept.
-  emit(ctx, self, CONTRACT, "ActionExecuted", { agent, target, value: settled, callOk });
+  // `callOk` is always true: a failed call reverts the whole action (`callTarget`).
+  emit(ctx, self, CONTRACT, "ActionExecuted", { agent, target, value: settled, callOk: true });
 }
 
 /**
- * Take `value` from the treasury, approve `target` for exactly that, call it,
- * revoke, and return whatever it did not pull to the agent's allowance. Tokens
- * above `value` (a target paying the router more than it took) go to the
- * treasury as unreserved funds. Stray router balance is never touched.
+ * Payment and action are atomic: a failing target call reverts the whole
+ * propose/resolve with the target's error (`ActionCallFailed` when it gave
+ * none), so every spend and count before it is rolled back with it.
  */
-function settlePull(
-  ctx: Ctx,
-  agent: Address,
-  target: Address,
-  value: bigint,
-  data: Hex,
-): { settled: bigint; callOk: boolean } {
+function callTarget(ctx: Ctx, target: Address, data: Hex): void {
+  const self = ctx.world.addresses.escalationRouter;
+  try {
+    ctx.env.dispatch(asSender(ctx, self), target, data);
+  } catch (err) {
+    if (err instanceof SimRevert && err.errorName === EVM_REVERT) {
+      throw new SimRevert("ActionCallFailed", { target });
+    }
+    throw err;
+  }
+}
+
+/**
+ * Take `value` from the treasury, approve `target` for exactly that, call it
+ * (a failed call reverts the action), revoke, and return whatever it did not
+ * pull to the agent's allowance. Tokens above `value` (a target paying the
+ * router more than it took) go to the treasury as unreserved funds. Stray
+ * router balance is never touched.
+ */
+function settlePull(ctx: Ctx, agent: Address, target: Address, value: bigint, data: Hex): bigint {
   const self = ctx.world.addresses.escalationRouter;
   const treasuryAddress = ctx.world.addresses.treasury;
   const router = asSender(ctx, self);
@@ -317,7 +329,7 @@ function settlePull(
   const before = token.balanceOf(ctx, self);
   treasury.spendAllowance(router, agent, value);
   token.approve(router, target, value);
-  const callOk = externalCall(ctx, self, target, data);
+  callTarget(ctx, target, data);
   token.approve(router, target, 0n);
 
   const held = token.balanceOf(ctx, self);
@@ -329,7 +341,7 @@ function settlePull(
     emit(ctx, self, CONTRACT, "SettlementReturned", { agent, target, returned: refund });
   }
   if (left > refund) token.transfer(router, treasuryAddress, left - refund);
-  return { settled: value - refund, callOk };
+  return value - refund;
 }
 
 function recordRate(ctx: Ctx, agent: Address): void {
