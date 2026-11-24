@@ -4,6 +4,7 @@
  */
 
 import { emit } from "./frame.js";
+import * as orgRegistry from "./orgRegistry.js";
 import { ONE_DAY, SimRevert, ZERO_ADDRESS, addr, checkedAdd, type Address } from "./types.js";
 import type { Ctx } from "./world.js";
 
@@ -45,6 +46,8 @@ export interface SessionRegistryState {
   nextSessionId: bigint;
   /** Keyed by session id as a decimal string. */
   sessions: Record<string, SessionState>;
+  /** session id (decimal string) => who issued it. */
+  issuedBy: Record<string, Address>;
   byAgent: Record<Address, bigint[]>;
   /** agent => key => session id (0 = none / cleared). */
   activeKeySession: Record<Address, Record<Address, bigint>>;
@@ -61,6 +64,7 @@ export function blankSessionRegistry(): SessionRegistryState {
     maxIssuerTtl: DEFAULT_MAX_ISSUER_TTL,
     nextSessionId: 1n,
     sessions: {},
+    issuedBy: {},
     byAgent: {},
     activeKeySession: {},
     sessionTargets: {},
@@ -90,9 +94,16 @@ function activeId(state: SessionRegistryState, agent: Address, key: Address): bi
   return state.activeKeySession[addr(agent)]?.[addr(key)] ?? 0n;
 }
 
-export function deploy(ctx: Ctx, address: Address, humanRoot_: Address): void {
+export function deploy(
+  ctx: Ctx,
+  address: Address,
+  humanRoot_: Address,
+  orgRegistry_: Address,
+): void {
   const humanRoot = addr(humanRoot_);
-  if (humanRoot === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  if (humanRoot === ZERO_ADDRESS || addr(orgRegistry_) === ZERO_ADDRESS) {
+    throw new SimRevert("ZeroAddress");
+  }
   ctx.world.addresses.sessionRegistry = address;
   ctx.world.sessionRegistry = { ...blankSessionRegistry(), humanRoot, issuer: humanRoot };
 }
@@ -219,6 +230,8 @@ function issueInternal(
     if (expiresAt > maxExpiresAt) {
       throw new SimRevert("ExpiryExceedsIssuerTtl", { expiresAt, maxExpiresAt });
     }
+    // The delegated issuer may only act for active manager/worker agents, never a human.
+    requireAgentNode(ctx, agent);
   }
   if (scopeMask === 0n || (scopeMask & ~SCOPE_ALL) !== 0n) {
     throw new SimRevert("InvalidScopeMask", { scopeMask });
@@ -237,6 +250,9 @@ function issueInternal(
   // Revoke any prior active session for this key binding.
   const prior = activeId(state, agent, key);
   if (prior !== 0n && !sessionAt(state, prior).revoked) {
+    if (ctx.sender !== state.humanRoot && state.issuedBy[prior.toString()] !== ctx.sender) {
+      throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+    }
     state.sessions[prior.toString()]!.revoked = true;
     emit(ctx, self, CONTRACT, "SessionRevoked", { sessionId: prior, by: ctx.sender });
   }
@@ -265,6 +281,7 @@ function issueInternal(
     windowStart,
     windowEnd,
   };
+  state.issuedBy[sessionId.toString()] = ctx.sender;
   (state.byAgent[agent] ??= []).push(sessionId);
   (state.activeKeySession[agent] ??= {})[key] = sessionId;
 
@@ -298,6 +315,9 @@ export function revoke(ctx: Ctx, sessionId: bigint): void {
   const state = ctx.world.sessionRegistry;
   const s = sessionAt(state, sessionId);
   if (!s.exists) throw new SimRevert("SessionNotFound", { sessionId });
+  if (ctx.sender !== state.humanRoot && state.issuedBy[sessionId.toString()] !== ctx.sender) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
   if (s.revoked) throw new SimRevert("AlreadyRevoked", { sessionId });
   state.sessions[sessionId.toString()]!.revoked = true;
   if (activeId(state, s.agent, s.key) === sessionId) {
@@ -408,6 +428,18 @@ export function rateLimits(ctx: Ctx, sessionId: bigint): RateLimitState {
       count: 0n,
     }),
   };
+}
+
+function requireAgentNode(ctx: Ctx, agent: Address): void {
+  let node: orgRegistry.OrgNodeState;
+  try {
+    node = orgRegistry.getNode(ctx, agent);
+  } catch {
+    throw new SimRevert("IssuerAgentNotEligible", { agent });
+  }
+  if (!node.active || node.kind === orgRegistry.NodeKind.HumanRoot) {
+    throw new SimRevert("IssuerAgentNotEligible", { agent });
+  }
 }
 
 function onlyRootOrIssuer(ctx: Ctx): void {

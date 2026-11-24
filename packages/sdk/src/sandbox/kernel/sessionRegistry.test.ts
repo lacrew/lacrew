@@ -1,13 +1,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
+import * as orgRegistry from "./orgRegistry.js";
 import * as sessionRegistry from "./sessionRegistry.js";
 import { SCOPE_ALL, SCOPE_PROPOSE_INTENT } from "./sessionRegistry.js";
 import {
   KEY,
   OTHER_KEY,
+  MANAGER,
   OTHER_TARGET,
   ROOT,
+  SECOND_HUMAN,
   STRANGER,
   Sim,
   T0,
@@ -22,8 +25,14 @@ const ROUTER = `0x${"44".repeat(20)}` as Address;
 const HOUR = 3_600n;
 
 function registry(): Sim {
-  const world = transact(blankWorld(), { sender: STRANGER, at: T0 }, (ctx) =>
-    sessionRegistry.deploy(ctx, allocateAddress(ctx), ROOT),
+  const deployed = transact(blankWorld(), { sender: STRANGER, at: T0 }, (ctx) => {
+    orgRegistry.deploy(ctx, allocateAddress(ctx), ROOT);
+  }).world;
+  const withWorker = transact(deployed, { sender: ROOT, at: T0 }, (ctx) =>
+    orgRegistry.addNode(ctx, WORKER, orgRegistry.NodeKind.WorkerAgent, ROOT),
+  ).world;
+  const world = transact(withWorker, { sender: STRANGER, at: T0 }, (ctx) =>
+    sessionRegistry.deploy(ctx, allocateAddress(ctx), ROOT, withWorker.addresses.orgRegistry),
   ).world;
   return new Sim(world);
 }
@@ -75,6 +84,43 @@ describe("kernel SessionRegistry", () => {
     sim.send(ROOT, (ctx) => issue(ctx));
   });
 
+  it("the issuer may only mint keys for active agent nodes", () => {
+    const sim = registry();
+    sim.send(ROOT, (ctx) => sessionRegistry.setIssuer(ctx, ISSUER));
+    const forAgent = (agent: Address) => (ctx: Ctx) =>
+      sessionRegistry.issue(ctx, agent, KEY, ctx.now + HOUR, SCOPE_ALL, 1n, ZERO_ADDRESS);
+
+    // The root, a peer human and an unknown account are all off limits.
+    sim.reverts("IssuerAgentNotEligible", ISSUER, forAgent(ROOT));
+    sim.send(ROOT, (ctx) =>
+      orgRegistry.addNode(ctx, SECOND_HUMAN, orgRegistry.NodeKind.HumanRoot, ROOT),
+    );
+    sim.reverts("IssuerAgentNotEligible", ISSUER, forAgent(SECOND_HUMAN));
+    sim.reverts("IssuerAgentNotEligible", ISSUER, forAgent(STRANGER));
+    // The root itself is not bound by this.
+    sim.send(ROOT, forAgent(ROOT));
+
+    sim.send(ROOT, (ctx) =>
+      orgRegistry.addNode(ctx, MANAGER, orgRegistry.NodeKind.ManagerAgent, ROOT),
+    );
+    sim.send(ISSUER, forAgent(MANAGER));
+    sim.send(ISSUER, forAgent(WORKER));
+    sim.send(ROOT, (ctx) => orgRegistry.setActive(ctx, WORKER, false));
+    sim.reverts("IssuerAgentNotEligible", ISSUER, forAgent(WORKER));
+  });
+
+  it("the issuer may only revoke or supersede sessions it issued", () => {
+    const sim = registry();
+    sim.send(ROOT, (ctx) => sessionRegistry.setIssuer(ctx, ISSUER));
+    const rootId = sim.send(ROOT, (ctx) => issue(ctx));
+    sim.reverts("NotAuthorized", ISSUER, (ctx) => sessionRegistry.revoke(ctx, rootId));
+    sim.reverts("NotAuthorized", ISSUER, (ctx) => issue(ctx));
+    const own = sim.send(ISSUER, (ctx) => issue(ctx, OTHER_KEY));
+    sim.send(ISSUER, (ctx) => sessionRegistry.revoke(ctx, own));
+    const own2 = sim.send(ISSUER, (ctx) => issue(ctx, OTHER_KEY));
+    sim.send(ROOT, (ctx) => sessionRegistry.revoke(ctx, own2));
+  });
+
   it("validates its arguments in the contract's order", () => {
     const sim = registry();
     const call = (
@@ -124,13 +170,14 @@ describe("kernel SessionRegistry", () => {
     const sim = registry();
     sim.send(ROOT, (ctx) => sessionRegistry.setIssuer(ctx, ISSUER));
     const ceiling = T0 + 30n * ONE_DAY;
-    const withExpiry = (expiresAt: bigint) => (ctx: Ctx) =>
-      sessionRegistry.issue(ctx, WORKER, KEY, expiresAt, SCOPE_ALL, 1n, ZERO_ADDRESS);
+    // Distinct keys per caller: an issuer may not supersede a root-issued session.
+    const withExpiry = (expiresAt: bigint, key: Address = KEY) => (ctx: Ctx) =>
+      sessionRegistry.issue(ctx, WORKER, key, expiresAt, SCOPE_ALL, 1n, ZERO_ADDRESS);
 
     const err = sim.reverts("ExpiryExceedsIssuerTtl", ISSUER, withExpiry(ceiling + 1n));
     assert.deepEqual(err.args, { expiresAt: ceiling + 1n, maxExpiresAt: ceiling });
     sim.send(ISSUER, withExpiry(ceiling));
-    sim.send(ROOT, withExpiry(ceiling + 365n * ONE_DAY));
+    sim.send(ROOT, withExpiry(ceiling + 365n * ONE_DAY, OTHER_KEY));
 
     sim.reverts("NotAuthorized", ISSUER, (ctx) => sessionRegistry.setMaxIssuerTtl(ctx, 1n));
     sim.reverts("ZeroTtl", ROOT, (ctx) => sessionRegistry.setMaxIssuerTtl(ctx, 0n));
