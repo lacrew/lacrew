@@ -66,8 +66,9 @@ contract MarketplaceHandler is Test {
         ghostPaidIn += price;
     }
 
-    /// The org-funded rail: funds are pushed in, then settlement is called.
-    function buyViaRouter(uint256 buyerSeed, uint256 idSeed, bool overDeliver) external {
+    /// The org-funded rail: the router approves the market (possibly beyond the price),
+    /// then settlement pulls the price.
+    function buyViaRouter(uint256 buyerSeed, uint256 idSeed, bool overApprove) external {
         address router = market.settlementRouter();
         if (router == address(0)) return;
         address buyer = buyers[buyerSeed % buyers.length];
@@ -76,15 +77,26 @@ contract MarketplaceHandler is Test {
         if (seller == address(0) || !active || seller == buyer) return;
         if (market.hasPurchased(id, buyer)) return;
 
-        uint256 sent = overDeliver ? price + 1e6 : price;
-        if (sent > 0) {
+        uint256 approved = overApprove ? price + 1e6 : price;
+        if (approved > 0) {
             vm.prank(buyers[0]);
-            usdc.transfer(address(market), sent);
+            usdc.transfer(router, approved);
         }
-        ghostPaidIn += sent;
+        vm.prank(router);
+        usdc.approve(address(market), approved);
 
         vm.prank(router);
         market.purchaseFor(id, buyer, price);
+        ghostPaidIn += price;
+    }
+
+    /// Someone sends tokens straight to the market, outside any purchase.
+    function strayTransfer(uint256 amount) external {
+        amount = bound(amount, 0, 1_000e6);
+        if (usdc.balanceOf(buyers[1]) < amount) return;
+        vm.prank(buyers[1]);
+        usdc.transfer(address(market), amount);
+        ghostPaidIn += amount;
     }
 
     /// Governance recovering stray/over-delivered funds must not break solvency.
