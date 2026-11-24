@@ -64,6 +64,12 @@ export const NOT_SIMULATED: Record<string, string> = {
     "Gas guard: caps tree depth at MAX_DEPTH (32) so the ancestor walk fits a block. Reaching it needs a chain over 32 seats deep; the sandbox kernel does not model the cap. Covered by OrgRegistry.t.sol.",
   "EpochStreamer.TooManyRecipients":
     "Gas guard: caps payroll recipients at MAX_RECIPIENTS (100) so a full epoch fits a block. Reaching it needs over 100 recipients; the sandbox kernel does not model the cap. Covered by EpochStreamer.t.sol.",
+  "Treasury.revokeAllowance":
+    "Governed recall of an unspent node allowance back to liquid. The sandbox kernel does not model the treasury's allowance ledger recall. TODO: mirror it in the kernel.",
+  "Treasury.withdraw":
+    "High-tier governed payout of liquid funds out of the treasury. Not modelled by the sandbox kernel. TODO: mirror it in the kernel.",
+  "GovernanceModule.WithdrawNotHighTier":
+    "Raised only when a withdraw proposal is below High tier; the sandbox does not simulate Treasury.withdraw.",
   "Treasury.SafeERC20FailedOperation":
     "SafeERC20 guard for tokens that return false. MockUSDC reverts with its own error instead.",
   "Treasury.TransferAmountMismatch":

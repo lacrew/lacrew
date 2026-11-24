@@ -207,6 +207,13 @@ contract AuthorityHardeningTest is Test {
         gov.propose(GovernanceModule.Tier.Low, address(treasury), abi.encodeCall(Treasury.setStreamer, (stranger)));
     }
 
+    function test_lowTierCannotWithdraw() public {
+        bytes memory data = abi.encodeCall(Treasury.withdraw, (stranger, 1));
+        vm.expectRevert(GovernanceModule.WithdrawNotHighTier.selector);
+        gov.propose(GovernanceModule.Tier.Low, address(treasury), data);
+        gov.propose(GovernanceModule.Tier.High, address(treasury), data);
+    }
+
     function test_highTierCanTransferGovernor() public {
         treasury.setGovernor(address(gov));
         bytes memory data = abi.encodeCall(Treasury.setGovernor, (stranger));

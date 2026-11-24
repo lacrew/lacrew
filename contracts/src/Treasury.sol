@@ -49,6 +49,8 @@ contract Treasury is ITreasurySpender {
     event AllowanceRefunded(address indexed node, uint256 amount);
     event Paused(address indexed by);
     event Unpaused(address indexed by);
+    event AllowanceRevoked(address indexed node, uint256 amount);
+    event Withdrawn(address indexed to, uint256 amount);
 
     error InsufficientAllowance(address node, uint256 requested, uint256 available);
     error InsufficientTreasury(uint256 requested, uint256 available);
@@ -175,6 +177,34 @@ contract Treasury is ITreasurySpender {
         allowanceBalance[node] += amount;
         totalReserved += amount;
         emit AllowanceRefunded(node, amount);
+    }
+
+    /// @notice Return `amount` of `node`'s allowance to the liquid balance (e.g. after the
+    ///         node is removed from the registry). Governor only; the deployer while no
+    ///         governor is bound.
+    function revokeAllowance(address node, uint256 amount) external {
+        _onlyGovernorOrBootstrap();
+        uint256 available = allowanceBalance[node];
+        if (available < amount) revert InsufficientAllowance(node, amount, available);
+        allowanceBalance[node] = available - amount;
+        totalReserved -= amount;
+        emit AllowanceRevoked(node, amount);
+    }
+
+    /// @notice Move unreserved funds out of the treasury (migration, wind-down, incident
+    ///         response). Bounded by `liquidBalance()`; reserved allowances stay untouched.
+    /// @dev Governor only. GovernanceModule forces proposals carrying this selector to
+    ///      High tier, so it always clears the human quorum, timelock and veto window.
+    function withdraw(address to, uint256 amount) external {
+        _onlyGovernorOrBootstrap();
+        if (to == address(0)) revert ZeroAddress();
+        uint256 liquid = liquidBalance();
+        if (liquid < amount) revert InsufficientTreasury(amount, liquid);
+        uint256 before = token.balanceOf(to);
+        token.safeTransfer(to, amount);
+        uint256 received = token.balanceOf(to) - before;
+        if (received != amount) revert TransferAmountMismatch(amount, received);
+        emit Withdrawn(to, amount);
     }
 
     function liquidBalance() public view returns (uint256) {
