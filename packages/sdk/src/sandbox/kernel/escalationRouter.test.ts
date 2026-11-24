@@ -164,9 +164,68 @@ describe("kernel EscalationRouter: propose", () => {
 
     sim.send(WORKER, propose(10n * USDC, TARGET, "0xdead"));
     assert.equal(sim.lastEvent("ActionExecuted").args.callOk, false);
-    // The spend stands: only the failed call's own frame was rolled back.
-    assert.equal(allowanceOf(sim, WORKER), 180n * USDC);
-    assert.equal(sim.world.treasury.totalReserved, 180n * USDC);
+    // Neither call pulled anything, so neither cost the agent anything.
+    assert.equal(allowanceOf(sim, WORKER), 200n * USDC);
+    assert.equal(sim.world.treasury.totalReserved, 200n * USDC);
+  });
+});
+
+describe("kernel EscalationRouter: pull settlement", () => {
+  const router = (sim: Sim) => sim.world.addresses.escalationRouter;
+  /** A target that pulls `amount` of what the router approved it for. */
+  const pulling = (amount: bigint) => ({
+    ...inertEnv,
+    dispatch(ctx: Ctx, target: Address) {
+      token.transferFrom(
+        { ...ctx, sender: target },
+        ctx.world.addresses.escalationRouter,
+        target,
+        amount,
+      );
+    },
+  });
+
+  it("charges only what the target pulls and returns the rest", () => {
+    const sim = crewOrg();
+    sim.env = pulling(4n * USDC);
+    sim.send(WORKER, propose(10n * USDC, TARGET, "0x1234"));
+    assert.equal(balanceOf(sim, TARGET), 4n * USDC);
+    assert.equal(allowanceOf(sim, WORKER), 196n * USDC);
+    assert.equal(sim.world.treasury.totalReserved, 196n * USDC);
+    assert.equal(sim.lastEvent("SettlementReturned").args.returned, 6n * USDC);
+    assert.equal(
+      sim.lastEvent("ActionExecuted").args.value,
+      4n * USDC,
+      "the event reports the cost",
+    );
+    assert.equal(balanceOf(sim, router(sim)), 0n);
+    const allowance = (spender: Address) =>
+      sim.read((ctx) => token.allowance(ctx, router(sim), spender));
+    assert.equal(allowance(TARGET), 0n, "the approval does not outlive the call");
+    assert.equal(allowance(sim.world.addresses.treasury), 0n);
+  });
+
+  it("a target cannot pull more than the value", () => {
+    const sim = crewOrg();
+    sim.env = pulling(11n * USDC);
+    sim.send(WORKER, propose(10n * USDC, TARGET, "0x1234"));
+    assert.equal(sim.lastEvent("ActionExecuted").args.callOk, false);
+    assert.equal(balanceOf(sim, TARGET), 0n);
+    assert.equal(allowanceOf(sim, WORKER), 200n * USDC);
+  });
+
+  it("a payment without calldata is still pushed", () => {
+    const sim = crewOrg();
+    sim.send(WORKER, propose(10n * USDC));
+    assert.equal(balanceOf(sim, TARGET), 10n * USDC);
+    assert.equal(allowanceOf(sim, WORKER), 190n * USDC);
+  });
+
+  it("refuses the treasury's token as a target once value or calldata is involved", () => {
+    const sim = crewOrg();
+    const tokenAddress = sim.world.addresses.token;
+    sim.reverts("ProtectedTarget", WORKER, propose(0n, tokenAddress, "0x1234"));
+    sim.reverts("ProtectedTarget", WORKER, propose(1n, tokenAddress));
   });
 });
 

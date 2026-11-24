@@ -152,10 +152,28 @@ export const treasuryScenarios: Scenario[] = [
     });
     // Without a recipient, the spender itself is paid.
     b.call("root", "@treasury", "spendAllowance", ["worker", 5n * USDC]);
+
+    // A refund is the spender handing unpulled tokens back: only the spender may,
+    // the tokens must actually arrive, and the allowance is restored by that much.
+    b.reverts("NotSpender", "stranger", "@treasury", "refundAllowance", ["worker", 1n]);
+    b.reverts("ZeroAddress", "root", "@treasury", "refundAllowance", ["zero", 1n]);
+    b.call("root", "@token", "approve", ["@treasury", 0n]);
+    b.reverts(
+      "ERC20InsufficientAllowance",
+      "root",
+      "@treasury",
+      "refundAllowance",
+      ["worker", 3n * USDC],
+      "MockUSDC",
+    );
+    b.call("root", "@token", "approve", ["@treasury", 3n * USDC]);
+    b.call("root", "@treasury", "refundAllowance", ["worker", 3n * USDC], {
+      events: ["Transfer", "AllowanceRefunded"],
+    });
     b.expect({
-      allowance: { worker: 45n * USDC },
-      balance: { target: 10n * USDC, root: 5n * USDC },
-      treasury: { total: 85n * USDC, reserved: 45n * USDC, liquid: 40n * USDC },
+      allowance: { worker: 48n * USDC },
+      balance: { target: 10n * USDC, root: 2n * USDC },
+      treasury: { total: 88n * USDC, reserved: 48n * USDC, liquid: 40n * USDC },
     });
 
     b.call("root", "@treasury", "setGovernor", ["human2"], { events: ["GovernorUpdated"] });

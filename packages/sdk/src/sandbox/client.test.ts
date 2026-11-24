@@ -693,12 +693,24 @@ describe("sandbox client: calls by address", () => {
       data: "0xfeedface",
     });
     const events = commits.at(-1)!.events;
+    // Settled pull-style: the target is approved, pulls nothing, and the value returns.
     assert.deepEqual(
       events.map((e) => e.name),
-      ["Transfer", "AllowanceSpent", "ExternalCall", "ActionExecuted"],
+      [
+        "Transfer",
+        "AllowanceSpent",
+        "Approval",
+        "ExternalCall",
+        "Approval",
+        "Approval",
+        "Transfer",
+        "AllowanceRefunded",
+        "SettlementReturned",
+        "ActionExecuted",
+      ],
     );
     assert.equal(events.at(-1)!.args.callOk, true);
-    assert.deepEqual(events[2]!.args, {
+    assert.deepEqual(events[3]!.args, {
       from: client.addresses.escalationRouter,
       target: TARGET,
       data: "0xfeedface",
