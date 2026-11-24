@@ -20,6 +20,7 @@ cd ..
 anvil
 
 # Terminal B — scaffold + deploy
+# (deploy fails fast with the exact forge install commands if contracts/lib is empty)
 pnpm --filter @lacrew/cli exec tsx src/index.ts init
 pnpm --filter @lacrew/cli exec tsx src/index.ts deploy --anvil
 
