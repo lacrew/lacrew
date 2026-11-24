@@ -183,4 +183,46 @@ contract TreasuryTest is Test {
         assertEq(treasury.shortfall(), 30 * ONE);
         assertEq(treasury.liquidBalance(), 0);
     }
+
+    // ——— Governed revoke and withdraw ———
+
+    function test_revokeAllowanceReturnsFundsToLiquid() public {
+        treasury.deposit(100 * ONE);
+        treasury.streamAllowance(worker, 40 * ONE, 1);
+        treasury.revokeAllowance(worker, 25 * ONE);
+        assertEq(treasury.allowanceBalance(worker), 15 * ONE);
+        assertEq(treasury.totalReserved(), 15 * ONE);
+        assertEq(treasury.liquidBalance(), 85 * ONE);
+    }
+
+    function test_revokeAllowanceBoundedAndAuthorized() public {
+        treasury.deposit(100 * ONE);
+        treasury.streamAllowance(worker, 10 * ONE, 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(Treasury.InsufficientAllowance.selector, worker, 11 * ONE, 10 * ONE)
+        );
+        treasury.revokeAllowance(worker, 11 * ONE);
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(Treasury.NotAuthorized.selector, recipient));
+        treasury.revokeAllowance(worker, 1);
+    }
+
+    function test_withdrawBoundedByLiquid() public {
+        treasury.deposit(100 * ONE);
+        treasury.streamAllowance(worker, 40 * ONE, 1);
+        treasury.withdraw(recipient, 60 * ONE);
+        assertEq(usdc.balanceOf(recipient), 60 * ONE);
+        assertEq(treasury.allowanceBalance(worker), 40 * ONE);
+        vm.expectRevert(abi.encodeWithSelector(Treasury.InsufficientTreasury.selector, 1, 0));
+        treasury.withdraw(recipient, 1);
+    }
+
+    function test_withdrawGuards() public {
+        treasury.deposit(10 * ONE);
+        vm.expectRevert(Treasury.ZeroAddress.selector);
+        treasury.withdraw(address(0), 1);
+        vm.prank(recipient);
+        vm.expectRevert(abi.encodeWithSelector(Treasury.NotAuthorized.selector, recipient));
+        treasury.withdraw(recipient, 1);
+    }
 }

@@ -111,6 +111,10 @@ contract GovernanceModule {
     ///      timelock, and the veto window.
     bytes4 public constant SET_GOVERNOR_SELECTOR = bytes4(keccak256("setGovernor(address)"));
 
+    /// @notice `withdraw(address,uint256)` — Treasury's outflow to an arbitrary address.
+    ///         Proposals carrying it are always High tier.
+    bytes4 public constant WITHDRAW_SELECTOR = bytes4(keccak256("withdraw(address,uint256)"));
+
     event ProposalCreated(
         uint256 indexed proposalId,
         address indexed proposer,
@@ -153,6 +157,7 @@ contract GovernanceModule {
     error InvalidTiming(uint256 votingPeriod, uint256 highTierTimelock);
     error SelfTargetNotHighTier();
     error GovernorTransferNotHighTier();
+    error WithdrawNotHighTier();
 
     /// @dev Root acts directly; the module itself qualifies so an executed High-tier
     ///      proposal targeting this contract can retune parameters through governance.
@@ -330,6 +335,9 @@ contract GovernanceModule {
         if (target == address(this) && tier != Tier.High) revert SelfTargetNotHighTier();
         if (tier != Tier.High && data.length >= 4 && bytes4(data[:4]) == SET_GOVERNOR_SELECTOR) {
             revert GovernorTransferNotHighTier();
+        }
+        if (tier != Tier.High && data.length >= 4 && bytes4(data[:4]) == WITHDRAW_SELECTOR) {
+            revert WithdrawNotHighTier();
         }
         proposalId = nextProposalId++;
         bytes32 actionHash = keccak256(abi.encode(target, data));
