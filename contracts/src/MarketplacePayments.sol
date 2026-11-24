@@ -18,6 +18,10 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 ///      Sellers are paid by accrual (`owed` + `withdraw`) rather than a push transfer.
 ///      A push to a seller the stablecoin has blocklisted would revert and take the
 ///      buyer's purchase down with it; accrual keeps one seller's problem their own.
+///
+///      `totalOwed` is solvent only for a token that moves exactly the amount asked, so every
+///      payment in is measured and a fee-on-transfer token reverts (`TransferAmountMismatch`).
+///      Rebasing tokens are unsupported.
 contract MarketplacePayments {
     using SafeERC20 for IERC20;
 
@@ -40,10 +44,10 @@ contract MarketplacePayments {
     /// @notice May change the fee, the fee recipient, and itself.
     address public governor;
 
-    /// @notice EscalationRouter permitted to settle purchases from pre-delivered funds.
-    /// @dev The router pays a target *before* calling it, so an org-funded purchase arrives
-    ///      as tokens already sitting here rather than as an allowance to pull. Restricting
-    ///      `purchaseFor` to this address stops anyone from spending stray balance.
+    /// @notice EscalationRouter permitted to buy on behalf of an org.
+    /// @dev The router settles a call by approving the target for the intent's value, so an
+    ///      org-funded purchase pulls the price from the router like any buyer. Restricting
+    ///      `purchaseFor` to this address keeps the buyer naming to the org rail.
     address public settlementRouter;
 
     struct Listing {
@@ -93,7 +97,7 @@ contract MarketplacePayments {
     error SellerCannotBuy(bytes32 listingId);
     error NothingOwed(address payee);
     error NotSettlementRouter(address caller);
-    error FundsNotDelivered(uint256 required, uint256 delivered);
+    error TransferAmountMismatch(uint256 expected, uint256 actual);
     error NothingToSweep();
 
     constructor(address token_, address feeRecipient_, address governor_, uint16 feeBps_) {
@@ -140,32 +144,21 @@ contract MarketplacePayments {
     ///      price in the same block a buyer submits and collect the difference.
     function purchase(bytes32 listingId, uint256 maxPrice) external {
         uint256 price = _recordPurchase(listingId, msg.sender, maxPrice);
-        if (price > 0) token.safeTransferFrom(msg.sender, address(this), price);
+        if (price > 0) _pullExact(msg.sender, price);
     }
 
-    /// @notice Settle a purchase for `buyer` from funds already delivered to this contract.
-    /// @dev The org-funded rail. EscalationRouter pays a target and *then* calls it, so by
-    ///      the time this runs the tokens are already here and there is nothing to pull —
-    ///      hence the delivery check against unallocated balance instead of transferFrom.
+    /// @notice Buy `listingId` for `buyer`, paid by the settlement router.
+    /// @dev The org-funded rail. EscalationRouter approves this contract for the intent's
+    ///      value before calling, so the price is pulled exactly like `purchase`; whatever the
+    ///      router approved beyond the price stays with it and returns to the agent's allowance.
     ///
     ///      The purchase is credited to `buyer`, which the caller supplies. That is safe
     ///      because the caller is spending its own org's allowance: naming a different
     ///      buyer gifts the listing away rather than stealing one.
-    ///
-    ///      Over-delivery is not refunded here — the excess stays unallocated and is
-    ///      recoverable by the governor via `sweepUnallocated`.
     function purchaseFor(bytes32 listingId, address buyer, uint256 maxPrice) external {
         if (msg.sender != settlementRouter) revert NotSettlementRouter(msg.sender);
         uint256 price = _recordPurchase(listingId, buyer, maxPrice);
-        if (price > 0) {
-            // `_recordPurchase` has already added this purchase to `totalOwed`, so measure
-            // against the debt held *before* it. Anything above that is what was delivered —
-            // which is why a balance accrued to other payees can never fund a purchase.
-            uint256 priorOwed = totalOwed - price;
-            uint256 bal = token.balanceOf(address(this));
-            uint256 delivered = bal > priorOwed ? bal - priorOwed : 0;
-            if (delivered < price) revert FundsNotDelivered(price, delivered);
-        }
+        if (price > 0) _pullExact(msg.sender, price);
     }
 
     /// @dev Shared validation + accounting. Credits `owed` but moves no tokens; the caller
@@ -232,7 +225,7 @@ contract MarketplacePayments {
         emit SettlementRouterUpdated(settlementRouter_);
     }
 
-    /// @notice Recover balance beyond what is owed — stray transfers and over-delivery.
+    /// @notice Recover balance beyond what is owed — stray transfers sent in directly.
     /// @dev Cannot touch `owed`: it draws only from the unallocated surplus, so a seller's
     ///      accrued balance is not reachable by governance.
     function sweepUnallocated(address to) external returns (uint256 amount) {
@@ -273,6 +266,13 @@ contract MarketplacePayments {
     function _unallocated() private view returns (uint256) {
         uint256 bal = token.balanceOf(address(this));
         return bal > totalOwed ? bal - totalOwed : 0;
+    }
+
+    function _pullExact(address from, uint256 amount) private {
+        uint256 before = token.balanceOf(address(this));
+        token.safeTransferFrom(from, address(this), amount);
+        uint256 received = token.balanceOf(address(this)) - before;
+        if (received != amount) revert TransferAmountMismatch(amount, received);
     }
 
     function _onlyGovernor() private view {
