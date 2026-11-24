@@ -46,4 +46,12 @@ contract SpendCapPolicyTest is Test {
         policy.setAgentCap(agent, 250 ether);
         assertEq(policy.capOf(agent), 250 ether);
     }
+
+    function test_bindingGovernorDropsDeployerAdmin() public {
+        address gov = makeAddr("gov");
+        policy.setGovernor(gov);
+        assertEq(policy.admin(), address(0));
+        vm.expectRevert(abi.encodeWithSelector(SpendCapPolicy.NotAuthorized.selector, address(this)));
+        policy.setAgentCap(makeAddr("agent"), 1);
+    }
 }

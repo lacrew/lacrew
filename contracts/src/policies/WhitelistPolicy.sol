@@ -5,7 +5,8 @@ import {IPolicyModule, Verdict} from "../interfaces/IPolicyModule.sol";
 
 /// @title WhitelistPolicy
 /// @notice ALLOWs calls to whitelisted targets; DENYs everything else.
-/// @dev Mutators gated by admin (deployer) or governor (GovernanceModule).
+/// @dev Mutators gated by admin (deployer) until `setGovernor` binds, then by the governor
+///      alone: binding the governor drops `admin` to zero, so the deployer keeps no authority.
 contract WhitelistPolicy is IPolicyModule {
     mapping(address => bool) public allowed;
     address public admin;
@@ -22,12 +23,13 @@ contract WhitelistPolicy is IPolicyModule {
         admin = msg.sender;
     }
 
-    /// @notice Bind constitutional authority. Callable once by admin.
+    /// @notice Bind constitutional authority. Callable once by admin, which it then drops.
     function setGovernor(address governor_) external {
         if (msg.sender != admin) revert NotAuthorized(msg.sender);
         if (governor_ == address(0)) revert ZeroAddress();
         if (governor != address(0)) revert GovernorAlreadySet();
         governor = governor_;
+        admin = address(0);
         emit GovernorUpdated(governor_);
     }
 
