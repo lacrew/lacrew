@@ -66,6 +66,9 @@ contract SessionRegistry {
     /// @notice Who issued each session. A delegated issuer may only revoke its own.
     /// @dev Kept beside `Session` rather than in it so the public `sessions` getter keeps its shape.
     mapping(uint256 => address) public issuedBy;
+    /// @notice The agent's `OrgRegistry` incarnation when the session was issued. A key
+    ///         from before the agent was removed and re-added no longer validates.
+    mapping(uint256 => uint64) public agentGenerationOf;
     mapping(address => uint256[]) private _byAgent;
     /// @dev agent => key => sessionId (0 = none / cleared)
     mapping(address => mapping(address => uint256)) public activeKeySession;
@@ -329,6 +332,7 @@ contract SessionRegistry {
             windowEnd: windowEnd
         });
         issuedBy[sessionId] = msg.sender;
+        agentGenerationOf[sessionId] = orgRegistry.generationOf(agent);
         _byAgent[agent].push(sessionId);
         activeKeySession[agent][key] = sessionId;
 
@@ -376,6 +380,7 @@ contract SessionRegistry {
     function isValid(uint256 sessionId) public view returns (bool) {
         Session storage s = sessions[sessionId];
         if (!s.exists || s.revoked) return false;
+        if (agentGenerationOf[sessionId] != orgRegistry.generationOf(s.agent)) return false;
         return block.timestamp < s.expiresAt;
     }
 
@@ -396,7 +401,7 @@ contract SessionRegistry {
         uint256 id = activeKeySession[agent][key];
         if (id == 0) return (false, 0, address(0), 0);
         Session storage s = sessions[id];
-        if (!s.exists || s.revoked || block.timestamp >= s.expiresAt) {
+        if (!isValid(id)) {
             return (false, 0, address(0), 0);
         }
         return (true, s.maxValue, s.allowedTarget, s.scopeMask);

@@ -23,6 +23,8 @@ contract OrgRegistry is IOrgRegistry {
     mapping(address => address[]) private _children;
 
     address public root;
+    /// @inheritdoc IOrgRegistry
+    mapping(address => uint64) public override generationOf;
     /// @notice When non-zero, only this address may mutate the tree (GovernanceModule).
     address public governor;
 
@@ -53,6 +55,7 @@ contract OrgRegistry is IOrgRegistry {
     constructor(address humanRoot) {
         if (humanRoot == address(0)) revert ZeroAddress();
         root = humanRoot;
+        generationOf[humanRoot] = 1;
         _nodes[humanRoot] = Node({
             account: humanRoot,
             kind: NodeKind.HumanRoot,
@@ -109,6 +112,7 @@ contract OrgRegistry is IOrgRegistry {
             promoted.active = true;
             emit NodeReparented(newRoot, oldRoot, address(0));
         } else {
+            generationOf[newRoot]++;
             _nodes[newRoot] = Node({
                 account: newRoot,
                 kind: NodeKind.HumanRoot,
@@ -148,6 +152,7 @@ contract OrgRegistry is IOrgRegistry {
         if (_children[parent].length >= MAX_CHILDREN) revert TooManyChildren(parent);
         if (_depth(parent) >= MAX_DEPTH) revert MaxDepthExceeded(account);
 
+        generationOf[account]++;
         _nodes[account] = Node({account: account, kind: kind, parent: parent, active: true});
         _children[parent].push(account);
         emit NodeAdded(account, kind, parent);

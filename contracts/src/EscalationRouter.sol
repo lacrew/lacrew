@@ -59,8 +59,25 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     ///         intents can still be closed.
     bool public paused;
 
+    /// @notice When an intent stops being resolvable, and which incarnation of its agent and
+    ///         of its current approver it was made under.
+    /// @dev Kept beside `Intent` so the public `intents` getter keeps its shape. A
+    ///      generation that no longer matches `OrgRegistry.generationOf` means the address
+    ///      was removed and re-added since, so the intent belongs to someone else's seat.
+    struct IntentLife {
+        uint64 expiresAt;
+        uint64 agentGeneration;
+        uint64 approverGeneration;
+    }
+
+    /// @notice Lifetime given to a new intent, in seconds. Governed.
+    uint64 public intentTtl = 7 days;
+    uint64 public constant MIN_INTENT_TTL = 1 hours;
+    uint64 public constant MAX_INTENT_TTL = 365 days;
+
     uint256 public nextIntentId = 1;
     mapping(uint256 => Intent) public intents;
+    mapping(uint256 => IntentLife) public intentLife;
     /// @notice Optional per-node policy stack override (falls back to `policy`).
     mapping(address => IPolicyModule) public policyOf;
     /// @notice Optional per-node rate recorder (falls back to `rateRecorder`).
@@ -82,6 +99,9 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     event IntentCreated(uint256 indexed intentId, address indexed agent, address awaitingApprover);
     event IntentEscalated(uint256 indexed intentId, address indexed from, address indexed to);
     event IntentResolved(uint256 indexed intentId, bool approved);
+    /// @notice An intent was closed unapproved after its expiry, by anyone.
+    event IntentExpired(uint256 indexed intentId, address indexed closedBy);
+    event IntentTtlUpdated(uint64 intentTtl);
     /// @notice `value` is what the action cost the agent's allowance: the full value for a
     ///         payment, and for a pull-settled call only what the target kept.
     /// @dev `callOk` is always true: a failing target call reverts the whole action
@@ -107,6 +127,9 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
 
     error IntentNotFound(uint256 intentId);
     error IntentAlreadyResolved(uint256 intentId);
+    error IntentHasExpired(uint256 intentId, uint64 expiresAt);
+    error IntentNotExpired(uint256 intentId, uint64 expiresAt);
+    error InvalidIntentTtl(uint64 ttl);
     error NotAwaitingApprover(address caller);
     error UnexpectedVerdict(Verdict verdict);
     error NoApprover(address agent);
@@ -163,6 +186,14 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         if (!paused) revert NotPaused();
         paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    /// @notice Set the lifetime of intents created from now on.
+    function setIntentTtl(uint64 ttl) external {
+        _onlyGovernorOrBootstrap();
+        if (ttl < MIN_INTENT_TTL || ttl > MAX_INTENT_TTL) revert InvalidIntentTtl(ttl);
+        intentTtl = ttl;
+        emit IntentTtlUpdated(ttl);
     }
 
     /// @notice Wire treasury for ALLOW execution.
@@ -265,6 +296,12 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
             approved: false
         });
 
+        intentLife[intentId] = IntentLife({
+            expiresAt: uint64(block.timestamp) + intentTtl,
+            agentGeneration: orgRegistry.generationOf(agent),
+            approverGeneration: orgRegistry.generationOf(agentNode.parent)
+        });
+
         _recordRate(agent);
         emit IntentCreated(intentId, agent, agentNode.parent);
     }
@@ -291,10 +328,13 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         Intent storage intent = intents[intentId];
         if (intent.agent == address(0)) revert IntentNotFound(intentId);
         if (intent.resolved) revert IntentAlreadyResolved(intentId);
+        IntentLife storage life = intentLife[intentId];
+        if (block.timestamp >= life.expiresAt) revert IntentHasExpired(intentId, life.expiresAt);
         address awaiting = intent.awaitingApprover;
+        bool awaitingLive = _isCurrentNode(awaiting, life.approverGeneration);
         if (msg.sender == awaiting) {
-            if (!_isActiveNode(awaiting)) revert InactiveApprover(awaiting);
-        } else if (msg.sender != orgRegistry.root() || _isActiveNode(awaiting)) {
+            if (!awaitingLive) revert InactiveApprover(awaiting);
+        } else if (msg.sender != orgRegistry.root() || awaitingLive) {
             revert NotAwaitingApprover(msg.sender);
         }
 
@@ -305,7 +345,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
             return;
         }
 
-        if (!_isActiveNode(intent.agent)) revert InactiveAgent(intent.agent);
+        if (!_isCurrentNode(intent.agent, life.agentGeneration)) revert InactiveAgent(intent.agent);
 
         Verdict verdict = _policyFor(msg.sender).check(msg.sender, intent.target, intent.value, intent.data);
 
@@ -340,7 +380,22 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         address nextApprover = approver.parent;
         address previous = intent.awaitingApprover;
         intent.awaitingApprover = nextApprover;
+        life.approverGeneration = orgRegistry.generationOf(nextApprover);
         emit IntentEscalated(intentId, previous, nextApprover);
+    }
+
+    /// @notice Close an intent that passed its expiry. Anyone may call; it only ever
+    ///         rejects, so it needs no authority and frees nobody's funds.
+    function closeExpired(uint256 intentId) external {
+        Intent storage intent = intents[intentId];
+        if (intent.agent == address(0)) revert IntentNotFound(intentId);
+        if (intent.resolved) revert IntentAlreadyResolved(intentId);
+        uint64 expiresAt = intentLife[intentId].expiresAt;
+        if (block.timestamp < expiresAt) revert IntentNotExpired(intentId, expiresAt);
+        intent.resolved = true;
+        intent.approved = false;
+        emit IntentExpired(intentId, msg.sender);
+        emit IntentResolved(intentId, false);
     }
 
     function _finalizeAction(address agent, address target, uint256 value, bytes memory data) private {
@@ -518,6 +573,11 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         } catch {
             return false;
         }
+    }
+
+    /// @dev Active now and still the incarnation the intent was recorded under.
+    function _isCurrentNode(address account, uint64 generation) private view returns (bool) {
+        return _isActiveNode(account) && orgRegistry.generationOf(account) == generation;
     }
 
     function _policyFor(address node) private view returns (IPolicyModule) {

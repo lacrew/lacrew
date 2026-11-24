@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
 import {EpochStreamer} from "../src/EpochStreamer.sol";
@@ -19,7 +20,9 @@ contract EpochStreamerTest is Test {
 
     function setUp() public {
         usdc = new MockUSDC();
-        treasury = new Treasury(makeAddr("registry"), address(usdc), makeAddr("router"));
+        address fakeRegistry = makeAddr("registry");
+        vm.mockCall(fakeRegistry, abi.encodeWithSelector(IOrgRegistry.generationOf.selector), abi.encode(uint64(0)));
+        treasury = new Treasury(fakeRegistry, address(usdc), makeAddr("router"));
         streamer = new EpochStreamer(address(treasury), operator, uint64(block.timestamp), EPOCH);
 
         treasury.setStreamer(address(streamer));
