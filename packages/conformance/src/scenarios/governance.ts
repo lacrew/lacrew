@@ -32,7 +32,13 @@ export const governanceScenarios: Scenario[] = [
     // The root cannot write the tree by key once governance is bound.
     b.reverts("NotAuthorized", "root", "@registry", "addNode", ["manager", KIND.manager, "root"]);
 
-    const p = b.propose("stranger", LOW, hire("manager", KIND.manager, "root"));
+    // Only a seated voter may propose.
+    b.reverts("NoVotingPower", "stranger", "@gov", "propose", [
+      LOW,
+      "@registry",
+      { call: hire("manager", KIND.manager, "root") },
+    ]);
+    const p = b.propose("root", LOW, hire("manager", KIND.manager, "root"));
     b.expect({ proposals: { [p]: { state: "active", yesVotes: 0 } } });
     b.reverts("QuorumNotMet", "root", "@gov", "execute", [BigInt(p)]);
     b.reverts("NoVotingPower", "stranger", "@gov", "vote", [BigInt(p), true]);
@@ -101,15 +107,16 @@ export const governanceScenarios: Scenario[] = [
     b.allow("worker", "worker", "target", 1n);
     b.escalate("worker", "worker", "target", 1n);
 
-    b.pass({ to: "@registry", fn: "setActive", args: ["worker", false] });
+    // Only a hire rides the low tier: suspending, moving and firing are high tier.
+    b.pass({ to: "@registry", fn: "setActive", args: ["worker", false] }, HIGH);
     b.proposeReverts("InactiveAgent", "worker", "worker", "target", 1n);
-    b.pass({ to: "@registry", fn: "setActive", args: ["worker", true] });
-    b.pass({ to: "@registry", fn: "reparent", args: ["worker", "root"] });
-    b.pass({ to: "@registry", fn: "removeNode", args: ["manager"] });
+    b.pass({ to: "@registry", fn: "setActive", args: ["worker", true] }, HIGH);
+    b.pass({ to: "@registry", fn: "reparent", args: ["worker", "root"] }, HIGH);
+    b.pass({ to: "@registry", fn: "removeNode", args: ["manager"] }, HIGH);
     b.expect({ tree: ["root", "worker"], nodes: { worker: { parent: "root", active: true } } });
 
     // A proposal may call an address that holds no contract; the call succeeds.
-    const external = b.propose("root", LOW, { to: "target", data: "0x1234" });
+    const external = b.propose("root", HIGH, { to: "target", data: "0x1234" });
     b.vote("root", external);
     b.execute("root", external, { events: ["ProposalExecuted"] });
     b.expect({ proposals: { [external]: { state: "executed" } } });
@@ -180,6 +187,32 @@ export const governanceScenarios: Scenario[] = [
       "@registry",
       { call: { to: "@registry", fn: "setGovernor", args: ["root"] } },
     ]);
+    // The low tier carries an agent hire and nothing else unless the org allow-lists it.
+    b.reverts("ActionNotLowTier", "root", "@gov", "propose", [
+      LOW,
+      "@registry",
+      { call: { to: "@registry", fn: "removeNode", args: ["root"] } },
+    ]);
+    b.reverts("ActionNotLowTier", "root", "@gov", "propose", [
+      LOW,
+      "@registry",
+      { call: hire("human2", KIND.human, "root") },
+    ]);
+    b.reverts("ActionNotLowTier", "root", "@gov", "propose", [LOW, "@registry", "0xdeadbeef"]);
+    b.reverts("NotHumanRoot", "stranger", "@gov", "setLowTierSelector", ["0xdeadbeef", true]);
+    b.reverts("NotHumanRoot", "stranger", "@gov", "setLowTierDelay", [0n]);
+    b.reverts("GovernorTransferNotHighTier", "root", "@gov", "setLowTierSelector", [
+      "0xc42cf535",
+      true,
+    ]);
+    b.reverts("InvalidLowTierDelay", "root", "@gov", "setLowTierDelay", [BigInt(30 * DAY + 1)]);
+    b.call("root", "@gov", "setLowTierSelector", ["0xdeadbeef", true], {
+      events: ["LowTierSelectorUpdated"],
+    });
+    b.call("root", "@gov", "setLowTierDelay", [BigInt(30 * DAY)], {
+      events: ["LowTierDelayUpdated"],
+    });
+    b.call("root", "@gov", "setLowTierDelay", [BigInt(DAY)]);
 
     // No key seats, re-weights or revokes a human.
     b.reverts("NotGovernance", "root", "@gov", "admitHuman", ["human2", 2n]);
@@ -231,12 +264,12 @@ export const governanceScenarios: Scenario[] = [
     b.vote("root", garbage);
     b.execute("root", garbage, { revert: "ActionFailed" });
 
-    // Before the deadline quorum executes even when no outweighs yes; after it, the proposal is defeated.
-    const early = b.propose("root", LOW, { to: "target", data: "0x" });
+    // Before the deadline a tally the noes win is refused; after it, the proposal is defeated.
+    const early = b.propose("root", LOW, hire("target", KIND.worker, "root"));
     b.vote("root", early);
     b.vote("manager", early, false);
-    b.execute("root", early, { events: ["ProposalExecuted"] });
-    const late = b.propose("root", LOW, { to: "target", data: "0x" });
+    b.reverts("Outvoted", "root", "@gov", "execute", [BigInt(early)]);
+    const late = b.propose("root", LOW, hire("target2", KIND.worker, "root"));
     b.vote("root", late);
     b.vote("manager", late, false);
     b.warp(HOUR + 1);
@@ -244,7 +277,7 @@ export const governanceScenarios: Scenario[] = [
     b.execute("root", late, { events: ["ProposalDefeated"] });
     b.expect({
       proposals: {
-        [early]: { state: "executed", yesVotes: 2, noVotes: 3 },
+        [early]: { state: "active", yesVotes: 2, noVotes: 3 },
         [late]: { state: "defeated" },
       },
     });
@@ -278,9 +311,10 @@ export const governanceScenarios: Scenario[] = [
       b.execute("root", p);
       b.expect({ proposals: { [p]: { state: "executed", yesVotes: 2, noVotes: 5 } } });
 
-      // Defeat needs the deadline to have passed: at the deadline itself, quorum still executes.
-      const first = b.propose("root", LOW, { to: "target", data: "0x" });
-      const second = b.propose("root", LOW, { to: "target", data: "0x" });
+      // Defeat needs the deadline to have passed: at the deadline itself, a losing
+      // tally is only refused.
+      const first = b.propose("root", LOW, hire("target", KIND.worker, "root"));
+      const second = b.propose("root", LOW, hire("target2", KIND.worker, "root"));
       for (const id of [first, second]) {
         b.vote("root", id);
         b.vote("manager", id, false);
@@ -288,10 +322,22 @@ export const governanceScenarios: Scenario[] = [
       // `first` was created at second D and `second` at D + 1; the clock is at D + 5.
       b.warp(3 * DAY - 5);
       // D + 3 days + 1 is `second`'s deadline: not past it.
-      b.execute("root", second, { events: ["ProposalExecuted"] });
+      b.reverts("Outvoted", "root", "@gov", "execute", [BigInt(second)]);
       // D + 3 days + 2 is past `first`'s.
       b.execute("root", first, { events: ["ProposalDefeated"] });
-      b.expect({ proposals: { [first]: { state: "defeated" }, [second]: { state: "executed" } } });
+      b.expect({ proposals: { [first]: { state: "defeated" }, [second]: { state: "active" } } });
+
+      // A low-tier hire the humans have not all backed waits out the delay, to the second.
+      // Proposed at second E, so the delay lifts at E + 1 day.
+      const hired = b.propose("manager", LOW, hire("stranger", KIND.worker, "root"));
+      b.vote("manager", hired);
+      b.reverts("TimelockNotElapsed", "root", "@gov", "execute", [BigInt(hired)]);
+      b.warp(DAY - 3);
+      // E + 1 day - 1: the last second of the delay.
+      b.reverts("TimelockNotElapsed", "root", "@gov", "execute", [BigInt(hired)]);
+      b.warp(1);
+      // E + 1 day: the delay is over.
+      b.execute("stranger", hired, { events: ["NodeAdded", "ProposalExecuted"] });
     },
   ),
 
@@ -354,7 +400,12 @@ export const governanceScenarios: Scenario[] = [
       seats: { human2: { power: 0n, role: "none" } },
       governance: { humanSeatCount: 1n },
     });
-    const later = b.propose("human2", LOW, hire("manager", KIND.manager, "root"));
+    b.reverts("NoVotingPower", "human2", "@gov", "propose", [
+      LOW,
+      "@registry",
+      { call: hire("manager", KIND.manager, "root") },
+    ]);
+    const later = b.propose("root", LOW, hire("manager", KIND.manager, "root"));
     b.reverts("NoVotingPower", "human2", "@gov", "vote", [BigInt(later), true]);
     b.reverts("NotHumanSeat", "human2", "@gov", "veto", [BigInt(later)]);
   }),

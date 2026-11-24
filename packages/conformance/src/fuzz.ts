@@ -131,6 +131,8 @@ const ACTIONS: CallSpec[] = [
   { to: "@gov", fn: "setQuorumHumanYes", args: [3n] },
   { to: "@gov", fn: "setTiming", args: [BigInt(HOUR), 600n] },
   { to: "@gov", fn: "setUnanimityFastPath", args: [false] },
+  { to: "@gov", fn: "setLowTierDelay", args: [600n] },
+  { to: "@gov", fn: "setLowTierSelector", args: ["0x2ce962cf", true] },
   { to: "@registry", fn: "setGovernor", args: ["root"] },
 ];
 
@@ -379,8 +381,9 @@ export class Fuzzer {
     const roll = this.next();
     if (roll < 0.3 || count === 0) {
       const action = this.pick(ACTIONS);
-      // High tier where the module demands it, and a share of wrong tiers.
-      const needsHigh = action.to === "@gov" || action.fn === "setGovernor";
+      // High tier where the module demands it (everything but an agent hire), and a
+      // share of wrong tiers.
+      const needsHigh = !(action.fn === "addNode" && action.args?.[1] !== KIND.human);
       const tier = this.chance(0.9) ? (needsHigh || this.chance(0.4) ? HIGH : LOW) : LOW;
       const target = this.chance(0.9) ? action.to : this.pick(["target", "zero"]);
       // Now and then, calldata no function answers: empty, or a bare selector.
