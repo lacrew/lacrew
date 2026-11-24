@@ -35,6 +35,7 @@ contract GovernanceModuleTest is Test {
     /// past the eta rather than relying on the unanimity fast path, so the helper
     /// works whether or not the humans already seated have all voted.
     function _admitHuman(GovernanceModule g, address who, uint256 power) internal {
+        vm.prank(root);
         uint256 id = g.propose(
             GovernanceModule.Tier.High,
             address(g),
@@ -54,6 +55,7 @@ contract GovernanceModuleTest is Test {
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
 
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.Low, address(registry), data);
 
         vm.prank(voter1);
@@ -61,6 +63,14 @@ contract GovernanceModuleTest is Test {
         vm.prank(voter2);
         gov.vote(id, true);
 
+        // Quorum alone is not enough: the root has not weighed in, so the low-tier
+        // delay holds the proposal open for it.
+        (, , , , , , , , , uint256 eta, ) = gov.proposals(id);
+        vm.expectRevert(
+            abi.encodeWithSelector(GovernanceModule.TimelockNotElapsed.selector, id, eta)
+        );
+        gov.execute(id);
+        _warpPastEta(id);
         gov.execute(id);
 
         IOrgRegistry.Node memory node = registry.getNode(worker);
@@ -77,10 +87,12 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.Low, address(registry), data);
 
         vm.prank(heavy);
         gov.vote(id, true);
+        _warpPastEta(id);
         gov.execute(id);
         assertEq(registry.getNode(worker).account, worker);
     }
@@ -90,6 +102,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (makeAddr("w"), IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.Low, address(registry), data);
 
         vm.prank(makeAddr("stranger"));
@@ -104,6 +117,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (makeAddr("w"), IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         // Agent review vote alone cannot satisfy high-tier human quorum.
         vm.prank(agent);
@@ -119,6 +133,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.Low, address(registry), data);
 
         vm.prank(voter1);
@@ -126,6 +141,7 @@ contract GovernanceModuleTest is Test {
         vm.prank(agent);
         gov.vote(id, true);
 
+        _warpPastEta(id);
         gov.execute(id);
         assertEq(registry.getNode(worker).account, worker);
     }
@@ -136,6 +152,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(agent);
@@ -152,6 +169,7 @@ contract GovernanceModuleTest is Test {
         gov.execute(id);
 
         // Human seat clears high-tier final say (fresh proposal needs its own timelock).
+        vm.prank(root);
         uint256 id2 = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         vm.prank(voter1);
         gov.vote(id2, true);
@@ -167,6 +185,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(voter1);
@@ -188,6 +207,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         // voter2 is a funded Human seat but not the root.
@@ -204,6 +224,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(agent);
@@ -219,6 +240,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         address stranger = makeAddr("veto-stranger");
@@ -235,6 +257,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(voter1);
@@ -258,6 +281,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, solo)
         );
+        vm.prank(solo);
         uint256 id = soloGov.propose(GovernanceModule.Tier.Low, address(soloRegistry), data);
 
         vm.prank(solo);
@@ -279,6 +303,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (managerHire, IOrgRegistry.NodeKind.ManagerAgent, solo)
         );
+        vm.prank(solo);
         uint256 id = soloGov.propose(GovernanceModule.Tier.High, address(soloRegistry), data);
 
         vm.prank(solo);
@@ -302,6 +327,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, solo)
         );
+        vm.prank(solo);
         uint256 id = soloGov.propose(GovernanceModule.Tier.Low, address(soloRegistry), data);
         vm.prank(solo);
         soloGov.vote(id, true);
@@ -321,6 +347,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(root);
@@ -349,6 +376,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         vm.prank(root);
         gov.vote(id, true);
@@ -377,6 +405,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         (, , , , , , , , uint256 deadline, uint256 eta, ) = gov.proposals(id);
         assertEq(deadline, block.timestamp + 1 hours);
@@ -407,11 +436,13 @@ contract GovernanceModuleTest is Test {
     function test_selfTargetRequiresHighTier() public {
         bytes memory data = abi.encodeCall(GovernanceModule.setQuorumYes, (3));
         vm.expectRevert(GovernanceModule.SelfTargetNotHighTier.selector);
+        vm.prank(root);
         gov.propose(GovernanceModule.Tier.Low, address(gov), data);
     }
 
     function test_governanceCanRetuneItselfHighTier() public {
         bytes memory data = abi.encodeCall(GovernanceModule.setTiming, (2 days, 12 hours));
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(gov), data);
 
         vm.prank(root);
@@ -483,12 +514,14 @@ contract GovernanceModuleTest is Test {
             (makeAddr("two-human-veto"), IOrgRegistry.NodeKind.WorkerAgent, root)
         );
 
+        vm.prank(root);
         uint256 first = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         vm.prank(voter1);
         gov.veto(first);
         (, , , , , , , , , , GovernanceModule.ProposalState s1) = gov.proposals(first);
         assertEq(uint8(s1), uint8(GovernanceModule.ProposalState.Vetoed));
 
+        vm.prank(root);
         uint256 second = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         vm.prank(voter2);
         gov.veto(second);
@@ -503,6 +536,7 @@ contract GovernanceModuleTest is Test {
         assertEq(gov.votingPower(voter1), 0);
         assertEq(uint8(gov.seatRole(voter1)), uint8(GovernanceModule.SeatRole.None));
 
+        vm.prank(root);
         uint256 id = gov.propose(
             GovernanceModule.Tier.High,
             address(registry),
@@ -517,7 +551,15 @@ contract GovernanceModuleTest is Test {
         assertEq(uint8(state), uint8(GovernanceModule.ProposalState.Vetoed));
 
         // A revoked seat is a stranger: no vote, and no veto either.
-        uint256 next = gov.propose(GovernanceModule.Tier.Low, address(registry), "");
+        vm.prank(root);
+        uint256 next = gov.propose(
+            GovernanceModule.Tier.Low,
+            address(registry),
+            abi.encodeCall(
+                OrgRegistry.addNode,
+                (makeAddr("after-revoke"), IOrgRegistry.NodeKind.WorkerAgent, root)
+            )
+        );
         vm.prank(voter1);
         vm.expectRevert(
             abi.encodeWithSelector(GovernanceModule.NotHumanSeat.selector, voter1)
@@ -533,6 +575,7 @@ contract GovernanceModuleTest is Test {
         _removeHuman(gov, voter2);
         assertEq(gov.humanSeatCount(), 1);
 
+        vm.prank(root);
         uint256 id = gov.propose(
             GovernanceModule.Tier.High,
             address(gov),
@@ -548,6 +591,7 @@ contract GovernanceModuleTest is Test {
         gov.execute(id);
 
         // Nor by demoting the seat to an agent one through setVotingPower.
+        vm.prank(root);
         uint256 demote = gov.propose(
             GovernanceModule.Tier.High,
             address(gov),
@@ -576,6 +620,7 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (makeAddr("still-needs-human"), IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(agent);
@@ -623,6 +668,7 @@ contract GovernanceModuleTest is Test {
     /// Revoke a human through governance. Root's weight carries it; the warp keeps the
     /// helper valid whether or not the fast path applies.
     function _removeHuman(GovernanceModule g, address who) internal {
+        vm.prank(root);
         uint256 id = g.propose(
             GovernanceModule.Tier.High,
             address(g),
@@ -644,26 +690,40 @@ contract GovernanceModuleTest is Test {
         bytes memory hireWorker = abi.encodeCall(
             OrgRegistry.addNode, (worker, IOrgRegistry.NodeKind.WorkerAgent, manager)
         );
+        vm.prank(root);
         uint256 id1 = gov.propose(GovernanceModule.Tier.Low, address(registry), hireMgr);
         vm.prank(voter1);
         gov.vote(id1, true);
         vm.prank(voter2);
         gov.vote(id1, true);
+        _warpPastEta(id1);
         gov.execute(id1);
 
+        vm.prank(root);
         uint256 id2 = gov.propose(GovernanceModule.Tier.Low, address(registry), hireWorker);
         vm.prank(voter1);
         gov.vote(id2, true);
         vm.prank(voter2);
         gov.vote(id2, true);
+        _warpPastEta(id2);
         gov.execute(id2);
 
         bytes memory fire = abi.encodeCall(OrgRegistry.removeNode, (manager));
-        uint256 id3 = gov.propose(GovernanceModule.Tier.Low, address(registry), fire);
+        // Firing is never low tier.
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                GovernanceModule.ActionNotLowTier.selector, OrgRegistry.removeNode.selector
+            )
+        );
+        vm.prank(root);
+        gov.propose(GovernanceModule.Tier.Low, address(registry), fire);
+        vm.prank(root);
+        uint256 id3 = gov.propose(GovernanceModule.Tier.High, address(registry), fire);
         vm.prank(voter1);
         gov.vote(id3, true);
         vm.prank(voter2);
         gov.vote(id3, true);
+        _warpPastEta(id3);
         gov.execute(id3);
 
         assertEq(registry.getNode(worker).parent, root);
@@ -671,6 +731,7 @@ contract GovernanceModuleTest is Test {
 
     function _highTierHire(string memory label) internal returns (uint256 id, address worker) {
         worker = makeAddr(label);
+        vm.prank(root);
         id = gov.propose(
             GovernanceModule.Tier.High,
             address(registry),
@@ -750,6 +811,7 @@ contract GovernanceModuleTest is Test {
         vm.prank(root);
         gov.setVotingPower(agent, 5, GovernanceModule.SeatRole.Agent);
         address worker = makeAddr("low-tier-agent-no");
+        vm.prank(root);
         uint256 id = gov.propose(
             GovernanceModule.Tier.Low,
             address(registry),

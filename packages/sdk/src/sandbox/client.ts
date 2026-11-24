@@ -37,6 +37,7 @@ import {
   type SessionKey,
   type TreasuryBalance,
   type Verdict,
+  defaultHireTier,
 } from "@lacrew/core";
 
 import type {
@@ -1023,7 +1024,7 @@ export class SandboxLacrewClient implements ProtocolClient {
       args: [account, KIND_TO[kind], parent],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? defaultHireTier(kind),
       target: this.addresses.orgRegistry,
       data,
     });
@@ -1040,7 +1041,7 @@ export class SandboxLacrewClient implements ProtocolClient {
       args: [input.account],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? "high",
       target: this.addresses.orgRegistry,
       data,
     });
@@ -1058,7 +1059,7 @@ export class SandboxLacrewClient implements ProtocolClient {
       args: [input.account, input.active],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? "high",
       target: this.addresses.orgRegistry,
       data,
     });
@@ -1076,7 +1077,7 @@ export class SandboxLacrewClient implements ProtocolClient {
       args: [input.account, input.newParent],
     });
     const result = await this.proposeGovernance({
-      tier: input.tier ?? "low",
+      tier: input.tier ?? "high",
       target: this.addresses.orgRegistry,
       data,
     });

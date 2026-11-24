@@ -32,7 +32,7 @@ Sibling private repo: `lacrew.xyz` (hosted cloud). Anything users must trust to 
 2. **Treasury** — holds funds; streams allowances downward. Leaves never pull from treasury directly.
 3. **IPolicyModule** — `check(agent, target, value, data) → ALLOW | ESCALATE | DENY`. Modules stack; first DENY wins; ESCALATE climbs the tree.
 4. **EscalationRouter** — pending intents + parent approval / recurse.
-5. **GovernanceModule** — constitutional actions only (hire/fire, budgets, policy upgrades). Low-tier: majority instant. High-tier: timelock + human veto.
+5. **GovernanceModule** — constitutional actions only (hire/fire, budgets, policy upgrades). Low-tier: allow-listed actions only (agent hire), quorum + yes > no + a short delay. High-tier: timelock + human veto.
 6. **Orchestrator** (off-chain) — runs agents, proposes intents, holds only short-lived session keys.
 
 Wallet infrastructure is wrapped via adapters (AgentKit, Safe, etc.), not reinvented.

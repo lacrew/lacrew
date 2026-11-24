@@ -122,7 +122,10 @@ export type CrewEscalation = {
 /** A change that is constitutional rather than operational (intake question 6, third bullet). */
 export type CrewGovernanceRule = {
   change: string;
-  /** High tier adds a timelock and a human veto; low tier is majority-instant. */
+  /**
+   * High tier adds a timelock and a human veto. Low tier carries only allow-listed
+   * actions (an agent hire by default) and waits a shorter delay.
+   */
   tier: "low" | "high";
 };
 

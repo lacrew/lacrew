@@ -30,6 +30,7 @@ contract GovernanceFuzzTest is Test {
     /// Human seats are governance's to hand out, so even a fixture seats them by
     /// passing a High-tier proposal on the module rather than writing state.
     function _admitHuman(address who, uint256 power) internal {
+        vm.prank(root);
         uint256 id = gov.propose(
             GovernanceModule.Tier.High,
             address(gov),
@@ -48,6 +49,7 @@ contract GovernanceFuzzTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(v1);
@@ -71,6 +73,7 @@ contract GovernanceFuzzTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
         vm.prank(v1);
         gov.vote(id, true);

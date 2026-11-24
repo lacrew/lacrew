@@ -36,6 +36,14 @@ export const SET_GOVERNOR_SELECTOR = "0xc42cf535";
 export const ROTATE_ROOT_SELECTOR = "0x611ab368";
 /** `bytes4(keccak256("setIssuer(address)"))`. */
 export const SET_ISSUER_SELECTOR = "0x55cc4e57";
+/** `bytes4(keccak256("withdraw(address,uint256)"))`: Treasury's outflow, always High tier. */
+export const WITHDRAW_SELECTOR = "0xf3fef3a3";
+/** `bytes4(keccak256("addNode(address,uint8,address)"))`: the one selector seeded as low tier. */
+export const ADD_NODE_SELECTOR = "0x38a08841";
+/** Default minimum age of a low-tier proposal before it may execute. */
+export const DEFAULT_LOW_TIER_DELAY = 86_400n;
+/** `IOrgRegistry.NodeKind.HumanRoot`, as `addNode` ABI-encodes it. */
+const HUMAN_ROOT_KIND = 0n;
 
 export interface ProposalRecord {
   proposer: Address;
@@ -72,6 +80,17 @@ export interface GovernanceState {
   votingPeriod: bigint;
   highTierTimelock: bigint;
   unanimityFastPath: boolean;
+  /**
+   * Minimum age of a low-tier proposal before it may execute. Optional because a
+   * world saved before it existed has none: it reads as the default.
+   */
+  lowTierDelay?: bigint;
+  /**
+   * Selectors (lower-case `0x` + 8 hex) a proposal may carry on the low tier.
+   * Optional because a world saved before it existed has none: it reads as the
+   * constructor's seed, `addNode` alone.
+   */
+  lowTierSelector?: Record<string, boolean>;
 }
 
 export function blankGovernance(): GovernanceState {
@@ -91,7 +110,23 @@ export function blankGovernance(): GovernanceState {
     votingPeriod: 3n * 86_400n,
     highTierTimelock: 86_400n,
     unanimityFastPath: true,
+    lowTierDelay: DEFAULT_LOW_TIER_DELAY,
+    lowTierSelector: { [ADD_NODE_SELECTOR]: true },
   };
+}
+
+/** `lowTierDelay()`. */
+export function lowTierDelay(ctx: Ctx): bigint {
+  return ctx.world.governance.lowTierDelay ?? DEFAULT_LOW_TIER_DELAY;
+}
+
+function lowTierSelectors(state: GovernanceState): Record<string, boolean> {
+  return (state.lowTierSelector ??= { [ADD_NODE_SELECTOR]: true });
+}
+
+/** `lowTierSelector(selector)`. */
+export function lowTierSelector(ctx: Ctx, selector: Hex): boolean {
+  return lowTierSelectors(ctx.world.governance)[selector.toLowerCase()] ?? false;
 }
 
 const ZERO_HASH: Hex = `0x${"0".repeat(64)}`;
@@ -166,6 +201,10 @@ export function deploy(ctx: Ctx, address: Address, humanRoot_: Address, rootPowe
   ctx.world.addresses.governanceModule = address;
   const state = { ...blankGovernance(), humanRoot };
   ctx.world.governance = state;
+  emit(ctx, address, CONTRACT, "LowTierSelectorUpdated", {
+    selector: ADD_NODE_SELECTOR,
+    allowed: true,
+  });
   if (rootPower_ > 0n) {
     state.votingPower[humanRoot] = rootPower_;
     state.seatRole[humanRoot] = SeatRole.Human;
@@ -331,6 +370,31 @@ export function setUnanimityFastPath(ctx: Ctx, enabled: boolean): void {
   });
 }
 
+export function setLowTierDelay(ctx: Ctx, lowTierDelay_: bigint): void {
+  onlyRootOrGovernance(ctx);
+  if (lowTierDelay_ > MAX_TIMELOCK) {
+    throw new SimRevert("InvalidLowTierDelay", { lowTierDelay: lowTierDelay_ });
+  }
+  ctx.world.governance.lowTierDelay = lowTierDelay_;
+  emit(ctx, ctx.world.addresses.governanceModule, CONTRACT, "LowTierDelayUpdated", {
+    lowTierDelay: lowTierDelay_,
+  });
+}
+
+/** Allow or refuse a selector on the low tier. A governor transfer can never be allowed. */
+export function setLowTierSelector(ctx: Ctx, selector_: Hex, allowed: boolean): void {
+  onlyRootOrGovernance(ctx);
+  const selector = selector_.toLowerCase();
+  if (allowed && selector === SET_GOVERNOR_SELECTOR) {
+    throw new SimRevert("GovernorTransferNotHighTier");
+  }
+  lowTierSelectors(ctx.world.governance)[selector] = allowed;
+  emit(ctx, ctx.world.addresses.governanceModule, CONTRACT, "LowTierSelectorUpdated", {
+    selector,
+    allowed,
+  });
+}
+
 /** Low-tier quorum actually enforced: never more yes-weight than the seated electorate holds. */
 export function effectiveQuorumYes(ctx: Ctx): bigint {
   const state = ctx.world.governance;
@@ -351,6 +415,9 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
   const state = ctx.world.governance;
   const self = ctx.world.addresses.governanceModule;
   const target = addr(target_);
+  if (powerOf(state, ctx.sender) === 0n && !rootMayAct(ctx)) {
+    throw new SimRevert("NoVotingPower", { voter: ctx.sender });
+  }
   if (target === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
   if (target === self && tier !== Tier.High) throw new SimRevert("SelfTargetNotHighTier");
   if (tier !== Tier.High && byteLength(data) >= 4) {
@@ -359,7 +426,9 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
     if (selector === ROTATE_ROOT_SELECTOR || selector === SET_ISSUER_SELECTOR) {
       throw new SimRevert("RootAuthorityNotHighTier");
     }
+    if (selector === WITHDRAW_SELECTOR) throw new SimRevert("WithdrawNotHighTier");
   }
+  if (tier !== Tier.High) requireLowTierAction(ctx, target, data);
   const proposalId = state.nextProposalId++;
   const actionHash = ctx.env.actionHash(target, data);
   const deadline = ctx.now + state.votingPeriod;
@@ -373,7 +442,7 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
     noVotes: 0n,
     yesHumanVotes: 0n,
     deadline,
-    eta: tier === Tier.High ? deadline + state.highTierTimelock : 0n,
+    eta: tier === Tier.High ? deadline + state.highTierTimelock : ctx.now + lowTierDelay(ctx),
     state: ProposalState.Active,
   };
   emit(ctx, self, CONTRACT, "ProposalCreated", {
@@ -384,6 +453,29 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
     actionHash,
   });
   return proposalId;
+}
+
+/**
+ * What may ride the low tier: never this module, never a governor transfer, and
+ * otherwise only an allow-listed selector. A hire may not seat a `HumanRoot` node.
+ */
+function requireLowTierAction(ctx: Ctx, target: Address, data: Hex): void {
+  if (target === ctx.world.addresses.governanceModule) {
+    throw new SimRevert("SelfTargetNotHighTier");
+  }
+  const zero = "0x00000000";
+  if (byteLength(data) < 4) throw new SimRevert("ActionNotLowTier", { selector: zero });
+  const selector = data.slice(0, 10).toLowerCase();
+  if (selector === SET_GOVERNOR_SELECTOR) throw new SimRevert("GovernorTransferNotHighTier");
+  if (!lowTierSelector(ctx, selector as Hex)) {
+    throw new SimRevert("ActionNotLowTier", { selector });
+  }
+  if (
+    selector === ADD_NODE_SELECTOR &&
+    (byteLength(data) < 100 || BigInt(`0x${data.slice(2 + 72, 2 + 136)}`) === HUMAN_ROOT_KIND)
+  ) {
+    throw new SimRevert("ActionNotLowTier", { selector });
+  }
 }
 
 export function vote(ctx: Ctx, proposalId: bigint, support: boolean): void {
@@ -442,21 +534,22 @@ export function execute(ctx: Ctx, proposalId: bigint): void {
   const p = proposalRef(state, proposalId);
   if (p.state !== ProposalState.Active) throw new SimRevert("ProposalNotActive", { proposalId });
 
-  if (p.tier === Tier.High) {
+  const high = p.tier === Tier.High;
+  if (high) {
     if (p.yesHumanVotes < effectiveQuorumHumanYes(ctx)) {
       throw new SimRevert("QuorumNotMet", { proposalId });
-    }
-    if (ctx.now < p.eta && !unanimousHumanYes(state, p)) {
-      throw new SimRevert("TimelockNotElapsed", { proposalId, eta: p.eta });
     }
   } else if (p.yesVotes < effectiveQuorumYes(ctx)) {
     throw new SimRevert("QuorumNotMet", { proposalId });
   }
+  if (ctx.now < p.eta && !unanimousHumanYes(state, p)) {
+    throw new SimRevert("TimelockNotElapsed", { proposalId, eta: p.eta });
+  }
 
-  // Each tier is defeated by the electorate that can pass it: human seats alone on high tier.
-  const outvoted =
-    p.tier === Tier.High ? noHumanVotes(ctx, proposalId) > p.yesHumanVotes : p.noVotes > p.yesVotes;
-  if (ctx.now > p.deadline && outvoted) {
+  // Each tier is carried by the electorate that can pass it: human seats alone on high tier.
+  const carried = high ? p.yesHumanVotes > noHumanVotes(ctx, proposalId) : p.yesVotes > p.noVotes;
+  if (!carried) {
+    if (ctx.now <= p.deadline) throw new SimRevert("Outvoted", { proposalId });
     p.state = ProposalState.Defeated;
     emit(ctx, self, CONTRACT, "ProposalDefeated", { proposalId });
     return;
@@ -469,7 +562,7 @@ export function execute(ctx: Ctx, proposalId: bigint): void {
   emit(ctx, self, CONTRACT, "ProposalExecuted", { proposalId });
 }
 
-/** The timelock shields humans who have not voted; unanimity means none remain. */
+/** The delay shields humans who have not voted; unanimity means none remain. */
 function unanimousHumanYes(state: GovernanceState, p: ProposalRecord): boolean {
   return (
     state.unanimityFastPath &&

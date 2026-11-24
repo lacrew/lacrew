@@ -14,10 +14,12 @@
  *  - Anything unreadable (missing human tally on a high-tier row) is skipped,
  *    not guessed.
  *
- * Each tier is defeated by the electorate that can pass it: a low-tier ballot
- * by total weight (`noVotes > yesVotes`), a high-tier one by human weight alone
- * (`noHumanVotes > yesHumanVotes`). Agent seats review a high-tier proposal;
- * however many of them vote no, they cannot defeat it.
+ * Each tier is carried by the electorate that can pass it, and only while its
+ * yes-weight exceeds its no-weight: a low-tier ballot by total weight, a
+ * high-tier one by human weight alone. Agent seats review a high-tier proposal;
+ * however many of them vote no, they cannot defeat it. Both tiers wait out
+ * their `eta` (the high-tier timelock or the low-tier delay) unless every
+ * seated human has voted yes.
  */
 
 import type { GovernanceProposal } from "@lacrew/core";
@@ -36,7 +38,12 @@ export type SweepDecision =
   | {
       execute: false;
       reason:
-        "not_active" | "quorum_not_met" | "timelock_pending" | "would_defeat" | "config_unreadable";
+        | "not_active"
+        | "quorum_not_met"
+        | "timelock_pending"
+        | "outvoted"
+        | "would_defeat"
+        | "config_unreadable";
     };
 
 export function decideAutoExecute(
@@ -47,44 +54,46 @@ export function decideAutoExecute(
   if (p.state !== "active") return { execute: false, reason: "not_active" };
 
   const lapsed = p.deadline > 0 && nowSeconds > p.deadline;
+  const high = p.tier === "high";
 
-  if (p.tier === "high") {
-    if (config.effectiveQuorumHumanYes === undefined) {
+  // The tally each tier is carried by: human weight alone on high tier, all
+  // seat weight on low tier. Agent no-weight never decides a high-tier ballot.
+  let yes: number;
+  let no: number;
+  if (high) {
+    if (p.yesHumanVotes === undefined) return { execute: false, reason: "config_unreadable" };
+    yes = p.yesHumanVotes;
+    if (lapsed && p.noHumanVotes === undefined) {
       return { execute: false, reason: "config_unreadable" };
     }
-    const humanYes = p.yesHumanVotes;
-    if (humanYes === undefined) return { execute: false, reason: "config_unreadable" };
-    // A lapsed ballot the human noes won: execute() would finalize it as
-    // Defeated. Agent no-weight is not counted, so `noVotes` says nothing here.
-    if (lapsed) {
-      if (p.noHumanVotes === undefined) return { execute: false, reason: "config_unreadable" };
-      if (p.noHumanVotes > humanYes) return { execute: false, reason: "would_defeat" };
-    }
-    if (BigInt(humanYes) < BigInt(config.effectiveQuorumHumanYes)) {
-      return { execute: false, reason: "quorum_not_met" };
-    }
-    const totalHuman = BigInt(config.totalHumanVotingPower ?? "0");
-    const unanimous =
-      Boolean(config.unanimityFastPath) && totalHuman > 0n && BigInt(humanYes) >= totalHuman;
-    if (nowSeconds < p.eta && !unanimous) {
-      return { execute: false, reason: "timelock_pending" };
-    }
-    return {
-      execute: true,
-      via: unanimous && nowSeconds < p.eta ? "unanimity" : "timelock_elapsed",
-    };
+    no = p.noHumanVotes ?? 0;
+  } else {
+    yes = p.yesVotes;
+    no = p.noVotes;
   }
+  const carried = yes > no;
+  // A lapsed ballot that is not carried: execute() would finalize it as Defeated.
+  if (lapsed && !carried) return { execute: false, reason: "would_defeat" };
 
-  // A lapsed low-tier ballot the noes won: execute() would finalize it as Defeated.
-  if (lapsed && p.noVotes > p.yesVotes) return { execute: false, reason: "would_defeat" };
+  const quorum = high ? config.effectiveQuorumHumanYes : config.effectiveQuorumYes;
+  if (quorum === undefined) return { execute: false, reason: "config_unreadable" };
+  if (BigInt(yes) < BigInt(quorum)) return { execute: false, reason: "quorum_not_met" };
 
-  if (config.effectiveQuorumYes === undefined) {
-    return { execute: false, reason: "config_unreadable" };
-  }
-  if (BigInt(p.yesVotes) < BigInt(config.effectiveQuorumYes)) {
-    return { execute: false, reason: "quorum_not_met" };
-  }
-  return { execute: true, via: "quorum" };
+  // Both tiers wait out their delay (high-tier timelock, low-tier delay) unless
+  // every seated human has voted yes.
+  const totalHuman = BigInt(config.totalHumanVotingPower ?? "0");
+  const unanimous =
+    Boolean(config.unanimityFastPath) &&
+    totalHuman > 0n &&
+    BigInt(p.yesHumanVotes ?? 0) >= totalHuman;
+  const pending = nowSeconds < p.eta;
+  if (pending && !unanimous) return { execute: false, reason: "timelock_pending" };
+
+  // Voting is still open and the noes hold their own: execute() reverts Outvoted.
+  if (!carried) return { execute: false, reason: "outvoted" };
+
+  if (pending) return { execute: true, via: "unanimity" };
+  return { execute: true, via: high ? "timelock_elapsed" : "quorum" };
 }
 
 /** Opt-in flag: executing governance without a human press is a policy decision. */

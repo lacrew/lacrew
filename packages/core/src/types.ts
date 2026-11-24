@@ -6,6 +6,16 @@ export type Verdict = "ALLOW" | "ESCALATE" | "DENY";
 
 export type GovernanceTier = "low" | "high";
 
+/**
+ * The tier a hire proposal defaults to. GovernanceModule carries only an agent
+ * hire on the low tier (its seeded `lowTierSelector`); a `human_root` node is a
+ * final approver and always high tier. Every other governed action is high tier
+ * unless the org allow-lists its selector.
+ */
+export function defaultHireTier(kind: NodeKind): GovernanceTier {
+  return kind === "human_root" ? "high" : "low";
+}
+
 export type GovernanceProposalState = "active" | "executed" | "vetoed" | "defeated";
 
 /** Onchain governance proposal as read from GovernanceModule. */

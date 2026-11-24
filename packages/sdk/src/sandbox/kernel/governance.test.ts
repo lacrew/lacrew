@@ -10,6 +10,10 @@ import { allocateAddress, blankWorld, inertEnv, transact, type Ctx, type World }
 const HOUR = 3_600n;
 const VOTING_PERIOD = 3n * ONE_DAY;
 const TIMELOCK = ONE_DAY;
+const LOW_DELAY = ONE_DAY;
+/** Stub selectors the module allow-lists for the low tier in these tests. */
+const LOW_ACTION: Hex = "0x12345678";
+const FAILING_ACTION: Hex = "0xff000000";
 
 /** Calldata the stub env understands: it runs the named action as the caller. */
 const ACTIONS: Record<Hex, (ctx: Ctx) => void> = {
@@ -38,9 +42,11 @@ function module(rootPower = 2n): Sim & { calls: Array<{ target: Address; data: H
       sim.calls.push({ target, data });
       const self = (ctx.world as World).addresses.governanceModule;
       if (target === self) ACTIONS[data]?.(ctx as Ctx);
-      else if (data === "0xff00") throw new SimRevert("Boom");
+      else if (data === "0xff00" || data === FAILING_ACTION) throw new SimRevert("Boom");
     },
   };
+  sim.send(ROOT, (ctx) => governance.setLowTierSelector(ctx, LOW_ACTION, true));
+  sim.send(ROOT, (ctx) => governance.setLowTierSelector(ctx, FAILING_ACTION, true));
   return sim;
 }
 
@@ -48,7 +54,7 @@ const self = (sim: Sim) => sim.world.addresses.governanceModule;
 const proposal = (sim: Sim, id: bigint) => sim.read((ctx) => governance.proposals(ctx, id));
 const agentSeat = (sim: Sim, voter: Address, power = 1n) =>
   sim.send(ROOT, (ctx) => governance.setVotingPower(ctx, voter, power, SeatRole.Agent));
-const low = (sim: Sim, data: Hex = "0x1234", from: Address = ROOT) =>
+const low = (sim: Sim, data: Hex = LOW_ACTION, from: Address = ROOT) =>
   sim.send(from, (ctx) => governance.propose(ctx, Tier.Low, TARGET, data));
 const high = (sim: Sim, target: Address, data: Hex, from: Address = ROOT) =>
   sim.send(from, (ctx) => governance.propose(ctx, Tier.High, target, data));
@@ -244,19 +250,23 @@ describe("kernel GovernanceModule: parameters", () => {
 describe("kernel GovernanceModule: proposals", () => {
   it("binds a proposal to its target and calldata", () => {
     const sim = module();
-    const id = low(sim, "0x1234", STRANGER);
+    // Only a seated voter may propose.
+    sim.reverts("NoVotingPower", STRANGER, (ctx) =>
+      governance.propose(ctx, Tier.High, TARGET, LOW_ACTION),
+    );
+    const id = low(sim);
     assert.equal(id, 1n);
     assert.deepEqual(proposal(sim, id), {
-      proposer: STRANGER,
+      proposer: ROOT,
       tier: Tier.Low,
       target: TARGET,
-      actionHash: inertEnv.actionHash(TARGET, "0x1234"),
-      data: "0x1234",
+      actionHash: inertEnv.actionHash(TARGET, LOW_ACTION),
+      data: LOW_ACTION,
       yesVotes: 0n,
       noVotes: 0n,
       yesHumanVotes: 0n,
       deadline: T0 + VOTING_PERIOD,
-      eta: 0n,
+      eta: T0 + LOW_DELAY,
       state: ProposalState.Active,
     });
     const h = high(sim, TARGET, "0x");
@@ -280,8 +290,60 @@ describe("kernel GovernanceModule: proposals", () => {
     sim.reverts("GovernorTransferNotHighTier", ROOT, (ctx) =>
       governance.propose(ctx, Tier.Low, TARGET, "0xC42CF535"),
     );
-    sim.send(ROOT, (ctx) => governance.propose(ctx, Tier.Low, TARGET, "0xc42cf5"));
+    sim.reverts("ActionNotLowTier", ROOT, (ctx) =>
+      governance.propose(ctx, Tier.Low, TARGET, "0xc42cf5"),
+    );
     sim.send(ROOT, (ctx) => governance.propose(ctx, Tier.High, TARGET, setGovernor));
+  });
+
+  it("carries only allow-listed actions on the low tier", () => {
+    const sim = module();
+    const fire = `0xb2b99ec9${"00".repeat(32)}` as Hex;
+    const err = sim.reverts("ActionNotLowTier", ROOT, (ctx) =>
+      governance.propose(ctx, Tier.Low, TARGET, fire),
+    );
+    assert.deepEqual(err.args, { selector: "0xb2b99ec9" });
+    sim.send(ROOT, (ctx) => governance.propose(ctx, Tier.High, TARGET, fire));
+
+    // A hire rides the low tier, unless it would seat a HumanRoot node.
+    const word = (n: number) => n.toString(16).padStart(64, "0");
+    const hire = (kind: number) =>
+      `${governance.ADD_NODE_SELECTOR}${word(1)}${word(kind)}${word(2)}` as Hex;
+    sim.send(ROOT, (ctx) => governance.propose(ctx, Tier.Low, TARGET, hire(2)));
+    sim.reverts("ActionNotLowTier", ROOT, (ctx) =>
+      governance.propose(ctx, Tier.Low, TARGET, hire(0)),
+    );
+    sim.reverts("ActionNotLowTier", ROOT, (ctx) =>
+      governance.propose(ctx, Tier.Low, TARGET, governance.ADD_NODE_SELECTOR as Hex),
+    );
+
+    // The list is the root's (or governance's) to curate; a governor transfer never joins it.
+    sim.reverts("NotHumanRoot", STRANGER, (ctx) =>
+      governance.setLowTierSelector(ctx, "0xb2b99ec9", true),
+    );
+    sim.reverts("GovernorTransferNotHighTier", ROOT, (ctx) =>
+      governance.setLowTierSelector(ctx, governance.SET_GOVERNOR_SELECTOR as Hex, true),
+    );
+    sim.send(ROOT, (ctx) => governance.setLowTierSelector(ctx, "0xB2B99EC9", true));
+    assert.deepEqual(sim.lastEvent("LowTierSelectorUpdated").args, {
+      selector: "0xb2b99ec9",
+      allowed: true,
+    });
+    sim.send(ROOT, (ctx) => governance.propose(ctx, Tier.Low, TARGET, fire));
+  });
+
+  it("bounds and gates the low-tier delay", () => {
+    const sim = module();
+    sim.reverts("NotHumanRoot", STRANGER, (ctx) => governance.setLowTierDelay(ctx, 0n));
+    sim.reverts("InvalidLowTierDelay", ROOT, (ctx) =>
+      governance.setLowTierDelay(ctx, 30n * ONE_DAY + 1n),
+    );
+    sim.send(ROOT, (ctx) => governance.setLowTierDelay(ctx, HOUR));
+    assert.equal(
+      sim.read((ctx) => governance.lowTierDelay(ctx)),
+      HOUR,
+    );
+    assert.equal(proposal(sim, low(sim)).eta, sim.now + HOUR);
   });
 
   it("weighs votes by seat and refuses double votes and seatless voters", () => {
@@ -321,13 +383,14 @@ describe("kernel GovernanceModule: proposals", () => {
 
   it("executes a low-tier proposal once quorum is met, calling the target as itself", () => {
     const sim = module();
-    const id = low(sim, "0x1234");
+    const id = low(sim);
     sim.reverts("QuorumNotMet", ROOT, execute(id));
     sim.reverts("QuorumNotMet", ROOT, execute(99n));
+    // The root is every human seat, so its yes skips the low-tier delay.
     vote(sim, ROOT, id);
     sim.send(STRANGER, execute(id));
     assert.equal(proposal(sim, id).state, ProposalState.Executed);
-    assert.deepEqual(sim.calls, [{ target: TARGET, data: "0x1234" }]);
+    assert.deepEqual(sim.calls, [{ target: TARGET, data: LOW_ACTION }]);
     assert.deepEqual(sim.lastEvent("ProposalExecuted").args, { proposalId: id });
     sim.reverts("ProposalNotActive", ROOT, execute(id));
   });
@@ -337,6 +400,10 @@ describe("kernel GovernanceModule: proposals", () => {
     agentSeat(sim, MANAGER, 5n);
     const lowId = low(sim);
     vote(sim, MANAGER, lowId);
+    // No human has weighed in: the delay holds the proposal open for them.
+    const err = sim.reverts("TimelockNotElapsed", ROOT, execute(lowId));
+    assert.deepEqual(err.args, { proposalId: lowId, eta: sim.now + LOW_DELAY });
+    sim.warp(LOW_DELAY);
     sim.send(ROOT, execute(lowId));
 
     const highId = high(sim, TARGET, "0x");
@@ -457,19 +524,36 @@ describe("kernel GovernanceModule: proposals", () => {
     assert.deepEqual(sim.calls, []);
   });
 
-  it("before the deadline, quorum executes even when no outweighs yes", () => {
+  it("before the deadline, a proposal that does not out-vote the no side cannot execute", () => {
     const sim = module();
     agentSeat(sim, MANAGER, 3n);
     const id = low(sim);
     vote(sim, ROOT, id);
     vote(sim, MANAGER, id, false);
+    sim.reverts("Outvoted", ROOT, execute(id));
+    assert.equal(proposal(sim, id).state, ProposalState.Active);
+  });
+
+  it("two agents tied with the root neither execute nor survive the deadline", () => {
+    const sim = module();
+    agentSeat(sim, MANAGER, 1n);
+    agentSeat(sim, WORKER, 1n);
+    const id = low(sim, LOW_ACTION, MANAGER);
+    vote(sim, MANAGER, id);
+    vote(sim, WORKER, id);
+    sim.reverts("TimelockNotElapsed", ROOT, execute(id));
+    vote(sim, ROOT, id, false);
+    sim.warp(LOW_DELAY);
+    sim.reverts("Outvoted", ROOT, execute(id));
+    sim.warp(VOTING_PERIOD);
     sim.send(ROOT, execute(id));
-    assert.equal(proposal(sim, id).state, ProposalState.Executed);
+    assert.equal(proposal(sim, id).state, ProposalState.Defeated);
+    assert.deepEqual(sim.calls, []);
   });
 
   it("a failing action reverts the execution and leaves the proposal active", () => {
     const sim = module();
-    const id = low(sim, "0xff00");
+    const id = low(sim, FAILING_ACTION);
     vote(sim, ROOT, id);
     const err = sim.reverts("ActionFailed", ROOT, execute(id));
     assert.deepEqual(err.args, { target: TARGET });

@@ -88,7 +88,7 @@ verdict picks the tier:
 
 | Verdict    | Result                                               |
 | ---------- | ---------------------------------------------------- |
-| `ALLOW`    | low-tier proposal — executes on quorum, no timelock  |
+| `ALLOW`    | low tier for an agent hire, high tier for the rest   |
 | `ESCALATE` | high-tier proposal — timelock plus human veto window |
 | `DENY`     | nothing is raised; the step routes to `onDeny`       |
 

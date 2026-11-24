@@ -161,7 +161,7 @@ export function listLacrewMcpTools(): McpToolDescriptor[] {
     {
       name: "lacrew_org_action",
       description:
-        "Change the org chart or an agent's properties. Always routed through governance (org structure is constitutional); the policy verdict picks the tier — ALLOW earns low tier, ESCALATE high tier with timelock, DENY raises nothing.",
+        "Change the org chart or an agent's properties. Always routed through governance (org structure is constitutional); the policy verdict picks the tier — ALLOW earns low tier for an agent hire (high tier for every other change), ESCALATE high tier with timelock, DENY raises nothing.",
       inputSchema: {
         type: "object",
         properties: {

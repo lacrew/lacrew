@@ -58,7 +58,8 @@ export const rootRotationScenarios: Scenario[] = [
 
   governed("a compromised root is rotated by a High-tier proposal", (b) => {
     b.pass({ to: "@registry", fn: "addNode", args: ["manager", KIND.manager, "root"] });
-    b.pass({ to: "@registry", fn: "addNode", args: ["human2", KIND.human, "root"] });
+    // A HumanRoot seat is never low tier: the router would take it as a final approver.
+    b.pass({ to: "@registry", fn: "addNode", args: ["human2", KIND.human, "root"] }, HIGH);
     b.pass({ to: "@registry", fn: "addNode", args: ["worker", KIND.worker, "manager"] });
     b.pass({ to: "@gov", fn: "admitHuman", args: ["human2", 2n] }, HIGH);
     const sessionId = b.session();
@@ -102,8 +103,15 @@ export const rootRotationScenarios: Scenario[] = [
     b.call("human2", "@gov", "setQuorumYes", [2n]);
 
     // Governance acts on issuance without any root signature.
-    b.pass({ to: "@sessions", fn: "setIssuer", args: ["issuer"] }, HIGH, ["human2"]);
-    b.pass({ to: "@sessions", fn: "revoke", args: [BigInt(sessionId)] }, LOW, ["human2"]);
+    // The retired root is no longer seated, so the new root proposes. Revoking a
+    // session is not allow-listed, so both steps are High tier.
+    b.pass({ to: "@sessions", fn: "setIssuer", args: ["issuer"] }, HIGH, ["human2"], "human2");
+    b.pass(
+      { to: "@sessions", fn: "revoke", args: [BigInt(sessionId)] },
+      HIGH,
+      ["human2"],
+      "human2",
+    );
     b.expect({ keys: [{ agent: "worker", key: "key", valid: false }] });
     b.session({ from: "issuer", key: "key2" });
     b.expect({ keys: [{ agent: "worker", key: "key2", valid: true }] });

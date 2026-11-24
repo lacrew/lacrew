@@ -67,6 +67,7 @@ import {
   type NodePolicyStack,
   narrowScopesForEscalation,
   policyForcesEscalation,
+  defaultHireTier,
 } from "@lacrew/core";
 import { createPublicClient, http, parseEther, parseEventLogs, type Hex, type Log } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -4166,8 +4167,9 @@ export class CrewRuntime {
    * Org structure is constitutional, so every change is a governance proposal —
    * the orchestrator holds session keys only and must never be able to rewrite
    * the chart directly. The policy verdict picks the tier instead of
-   * proposal-vs-write: ALLOW earns Low tier (executes on quorum, no timelock),
-   * ESCALATE gets High tier (timelock + human veto), DENY raises nothing.
+   * proposal-vs-write: ALLOW earns Low tier where the GovernanceModule carries
+   * the action there (an agent hire, after the low-tier delay); any other action,
+   * and ESCALATE, get High tier (timelock + human veto); DENY raises nothing.
    */
   async orgAction(
     input: OrgActionInput & { principal?: `0x${string}`; ceiling?: `0x${string}` },
@@ -4182,7 +4184,10 @@ export class CrewRuntime {
     });
     if (verdict === "DENY") return { verdict };
 
-    const tier: GovernanceTier = verdict === "ALLOW" ? "low" : "high";
+    const tier: GovernanceTier =
+      verdict === "ALLOW" && input.action === "hire"
+        ? defaultHireTier(input.nodeKind ?? "worker_agent")
+        : "high";
     switch (input.action) {
       case "hire": {
         const r = await this.proposeHire({
@@ -4276,7 +4281,8 @@ export class CrewRuntime {
     const r = await this.proposeSetGrant({
       account: input.node!,
       amount: input.amount ?? 0n,
-      tier: verdict === "ALLOW" ? "low" : "high",
+      // Grants move treasury money: the module never carries them on the low tier.
+      tier: "high",
     });
     return { verdict, proposalId: r.proposalId, txHash: r.txHash, ...simRef(r) };
   }
@@ -4307,7 +4313,7 @@ export class CrewRuntime {
           throw new Error("governance propose requires onchain mode");
         }
         const r = await this.client.proposeGovernance({
-          tier: input.tier ?? "low",
+          tier: input.tier ?? "high",
           target: input.target!,
           data: (input.data ?? "0x") as `0x${string}`,
         });
@@ -4318,7 +4324,7 @@ export class CrewRuntime {
             proposalId: r.proposalId,
             action: "generic",
             target: input.target,
-            tier: input.tier ?? "low",
+            tier: input.tier ?? "high",
             txHash: r.txHash,
           },
         });
