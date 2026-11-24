@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
+import {FeeOnTransferToken} from "./utils/SettlementFixtures.sol";
 
 contract TreasuryTest is Test {
     MockUSDC internal usdc;
@@ -107,5 +108,79 @@ contract TreasuryTest is Test {
         treasury.setStreamer(address(0));
         treasury.streamAllowance(worker, 10 * ONE, 3);
         assertEq(treasury.allowanceBalance(worker), 30 * ONE);
+    }
+
+    // ——— Pull-settlement refunds ———
+
+    function test_refundRestoresAllowanceFromReturnedTokens() public {
+        treasury.deposit(100 * ONE);
+        treasury.streamAllowance(worker, 40 * ONE, 1);
+        vm.prank(router);
+        treasury.spendAllowance(worker, 40 * ONE);
+
+        vm.startPrank(router);
+        usdc.approve(address(treasury), 15 * ONE);
+        vm.expectEmit(true, false, false, true, address(treasury));
+        emit Treasury.AllowanceRefunded(worker, 15 * ONE);
+        treasury.refundAllowance(worker, 15 * ONE);
+        vm.stopPrank();
+
+        assertEq(treasury.allowanceBalance(worker), 15 * ONE);
+        assertEq(treasury.totalReserved(), 15 * ONE);
+        assertEq(usdc.balanceOf(router), 25 * ONE);
+        assertEq(treasury.liquidBalance(), 60 * ONE, "a refund never grows liquid funds");
+    }
+
+    function test_refundRevertsForNonSpender() public {
+        vm.prank(worker);
+        vm.expectRevert(abi.encodeWithSelector(Treasury.NotSpender.selector, worker));
+        treasury.refundAllowance(worker, 1);
+    }
+
+    /// The tokens must actually come back: a spender cannot mint allowance by asking.
+    function test_refundRevertsWithoutTheTokens() public {
+        vm.prank(router);
+        vm.expectRevert();
+        treasury.refundAllowance(worker, 10 * ONE);
+        assertEq(treasury.allowanceBalance(worker), 0);
+    }
+
+    // ——— Non-vanilla tokens ———
+
+    function test_feeOnTransferDepositReverts() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken();
+        Treasury t = new Treasury(registry, address(fot), router);
+        fot.mint(address(this), 100 * ONE);
+        fot.approve(address(t), type(uint256).max);
+        vm.expectRevert(
+            abi.encodeWithSelector(Treasury.TransferAmountMismatch.selector, 100 * ONE, 99 * ONE)
+        );
+        t.deposit(100 * ONE);
+    }
+
+    /// A fee token that reached the treasury anyway (sent directly) still cannot be spent
+    /// short: the recipient must receive exactly what the allowance was debited.
+    function test_feeOnTransferSpendReverts() public {
+        FeeOnTransferToken fot = new FeeOnTransferToken();
+        Treasury t = new Treasury(registry, address(fot), router);
+        fot.mint(address(t), 100 * ONE);
+        t.streamAllowance(worker, 50 * ONE, 1);
+        vm.prank(router);
+        vm.expectRevert(
+            abi.encodeWithSelector(Treasury.TransferAmountMismatch.selector, 20 * ONE, 19.8e6)
+        );
+        t.spendAllowance(worker, 20 * ONE, recipient);
+    }
+
+    function test_shortfallReportsUnbackedReservations() public {
+        treasury.deposit(100 * ONE);
+        treasury.streamAllowance(worker, 80 * ONE, 1);
+        assertEq(treasury.shortfall(), 0);
+
+        // A negative rebase or a seizure: balance drops without a transfer out.
+        vm.prank(address(treasury));
+        usdc.transfer(address(0xdead), 50 * ONE);
+        assertEq(treasury.shortfall(), 30 * ONE);
+        assertEq(treasury.liquidBalance(), 0);
     }
 }

@@ -121,6 +121,31 @@ export function spendAllowance(ctx: Ctx, node: Address, amount: bigint, to?: Add
   spend(ctx, addr(node), amount, addr(to));
 }
 
+/**
+ * Pull settlement, second half: the spender returns what the target did not
+ * pull (transferFrom the spender) and `node` gets that much allowance back.
+ */
+export function refundAllowance(ctx: Ctx, node_: Address, amount: bigint): void {
+  const state = ctx.world.treasury;
+  const self = ctx.world.addresses.treasury;
+  if (ctx.sender !== state.spender) throw new SimRevert("NotSpender", { caller: ctx.sender });
+  const node = addr(node_);
+  if (node === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
+  requireToken(ctx);
+  token.transferFrom(asSender(ctx, self), ctx.sender, self, amount);
+  state.allowanceBalance[node] = (state.allowanceBalance[node] ?? 0n) + amount;
+  state.totalReserved += amount;
+  emit(ctx, self, CONTRACT, "AllowanceRefunded", { node, amount });
+}
+
+/** How far the balance has fallen below what is reserved. */
+export function shortfall(ctx: Ctx): bigint {
+  requireToken(ctx);
+  const bal = token.balanceOf(ctx, ctx.world.addresses.treasury);
+  const reserved = ctx.world.treasury.totalReserved;
+  return reserved > bal ? reserved - bal : 0n;
+}
+
 export function liquidBalance(ctx: Ctx): bigint {
   requireToken(ctx);
   const bal = token.balanceOf(ctx, ctx.world.addresses.treasury);
