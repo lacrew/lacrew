@@ -37,6 +37,8 @@ import {
   policyStackBytecode,
   rateLimitPolicyAbi,
   rateLimitPolicyBytecode,
+  cumulativeValuePolicyAbi,
+  cumulativeValuePolicyBytecode,
   timeWindowPolicyAbi,
   timeWindowPolicyBytecode,
   marketplacePaymentsAbi,
@@ -2293,6 +2295,32 @@ export class OnchainLacrewClient implements ProtocolClient {
     return { ...result, node: input.node };
   }
 
+  /**
+   * Propose EscalationRouter.setNodeValueRecorder (high tier — policy upgrade).
+   * Required alongside setNodePolicy whenever a node's stack carries its own
+   * CumulativeValuePolicy: without the recorder binding settled spends are never
+   * summed into the module's window and its budget never trips.
+   */
+  async proposeSetNodeValueRecorder(input: {
+    node: `0x${string}`;
+    valueRecorder: `0x${string}`;
+    tier?: GovernanceTier;
+    /** Selects which stack's EscalationRouter binds the recorder; omit = primary. */
+    asset?: string;
+  }): Promise<{ proposalId: string; node: `0x${string}`; txHash: `0x${string}` }> {
+    const data = encodeFunctionData({
+      abi: escalationRouterAbi,
+      functionName: "setNodeValueRecorder",
+      args: [input.node, input.valueRecorder],
+    });
+    const result = await this.proposeGovernance({
+      tier: input.tier ?? "high",
+      target: resolveAssetStack(this.addresses, input.asset).escalationRouter,
+      data,
+    });
+    return { ...result, node: input.node };
+  }
+
   /** Deploy a contract from bytecode carried in @lacrew/core and return its address. */
   private async deployFromBytecode(
     abi: readonly unknown[],
@@ -2339,6 +2367,42 @@ export class OnchainLacrewClient implements ProtocolClient {
     const { request } = await this.publicClient.simulateContract({
       address: deployed.address,
       abi: rateLimitPolicyAbi,
+      functionName: "setRecorder",
+      args: [router],
+      account: wallet.account!,
+    });
+    const setHash = await wallet.writeContract(request);
+    await this.confirmWrite(setHash, "setRecorder");
+    return deployed;
+  }
+
+  /**
+   * Deploy a CumulativeValuePolicy — a window budget on settled value per agent,
+   * and per (agent, target) when `maxValuePerTarget` is non-zero (0 = off) — and
+   * lock its recorder to this org's EscalationRouter.
+   *
+   * Inert until governance binds it into a node's stack (setNodePolicy) and
+   * points the node's value recording at it (setNodeValueRecorder).
+   */
+  async deployCumulativeValuePolicy(input: {
+    maxValue: bigint;
+    maxValuePerTarget?: bigint;
+    windowSeconds: number;
+    asset?: string;
+  }): Promise<{ address: `0x${string}`; txHash: `0x${string}` }> {
+    const router = resolveAssetStack(this.addresses, input.asset).escalationRouter;
+    if (!isPresent(router)) {
+      throw new Error("escalationRouter address missing — cannot bind the recorder");
+    }
+    const deployed = await this.deployFromBytecode(
+      cumulativeValuePolicyAbi,
+      cumulativeValuePolicyBytecode,
+      [input.maxValue, input.maxValuePerTarget ?? 0n, BigInt(input.windowSeconds)],
+    );
+    const wallet = this.requireWallet();
+    const { request } = await this.publicClient.simulateContract({
+      address: deployed.address,
+      abi: cumulativeValuePolicyAbi,
       functionName: "setRecorder",
       args: [router],
       account: wallet.account!,
