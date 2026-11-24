@@ -230,7 +230,11 @@ global `rateRecorder` otherwise; both `propose`-time escalations and
 finalized actions are charged against the window.
 
 - **ALLOW** → the action finalizes immediately: allowance settled (below),
-  `target` called, `ActionExecuted` emitted.
+  `target` called, `ActionExecuted` emitted. Payment and call are atomic: if the
+  target call reverts, the whole `propose`/`resolve` reverts with the target's
+  revert data (or `ActionCallFailed(target)` when it has none), so no funds
+  move, no allowance, rate or cumulative-value budget is consumed, and an
+  escalated intent stays pending, to be retried or rejected.
 - **ESCALATE** → a pending intent is created awaiting the agent's parent.
   `resolve(id, true)` from the awaiting approver re-checks the approver's own
   policy stack: within bounds it finalizes; over bounds the intent climbs
@@ -274,8 +278,9 @@ whether it carries calldata:
   revokes the approval, and hands whatever `target` did not pull back to the
   agent's allowance (`refundAllowance`, `SettlementReturned`). Tokens
   `target` sends back to the router count as unpulled. A DEX or any
-  approve/`transferFrom` protocol works unchanged; a contract that ignores
-  the tokens, or a call that fails, costs the agent nothing.
+  approve/`transferFrom` protocol works unchanged; a contract that succeeds
+  but ignores the tokens costs the agent nothing. A call that fails reverts
+  the whole action (above), so nothing is spent or refunded.
 
 `ActionExecuted.value` and the value recorder (§2) see what the action
 actually cost: the full value for a payment, only what `target` kept for a
@@ -293,7 +298,8 @@ Session gating: `propose` requires a valid `SessionRegistry` key for
 `agent`, with `value <= maxValue` and, when pinned, `target == allowedTarget`.
 
 Events: `IntentCreated`, `IntentEscalated`, `IntentResolved`,
-`ActionExecuted(agent, target, value, callOk)`.
+`ActionExecuted(agent, target, value, callOk)` (`callOk` is always true: a
+failed call reverts the action instead of emitting).
 
 ## 6. GovernanceModule — constitutional actions
 

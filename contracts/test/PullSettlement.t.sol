@@ -152,9 +152,9 @@ contract PullSettlementTest is Test {
         _assertNoResidue(address(ignorer));
     }
 
-    function test_failedCallCostsNothing() public {
-        vm.expectEmit(true, true, false, true, address(router));
-        emit EscalationRouter.ActionExecuted(worker, address(puller), 0, false);
+    /// A failed call reverts the whole action with the target's revert data: nothing is spent.
+    function test_failedCallRevertsAndCostsNothing() public {
+        vm.expectRevert(bytes("boom"));
         router.propose(worker, address(puller), 40 * ONE, abi.encodeCall(PullingTarget.boom, ()));
         assertEq(treasury.allowanceBalance(worker), 100 * ONE);
         assertEq(budget.spentOf(worker), 0);
@@ -162,10 +162,18 @@ contract PullSettlementTest is Test {
     }
 
     function test_targetCannotPullBeyondTheValue() public {
+        vm.expectRevert(
+            abi.encodeWithSignature(
+                "ERC20InsufficientAllowance(address,uint256,uint256)",
+                address(puller),
+                0,
+                40 * ONE
+            )
+        );
         router.propose(
             worker, address(puller), 40 * ONE, abi.encodeCall(PullingTarget.pullTwice, (40 * ONE))
         );
-        assertEq(usdc.balanceOf(address(puller)), 0, "the over-pull reverted the whole call");
+        assertEq(usdc.balanceOf(address(puller)), 0, "the over-pull reverted the whole action");
         assertEq(treasury.allowanceBalance(worker), 100 * ONE);
         _assertNoResidue(address(puller));
     }
@@ -211,8 +219,7 @@ contract PullSettlementTest is Test {
     function test_targetCannotReenterTheRouter() public {
         ReentrantTarget reentrant = new ReentrantTarget(router, worker);
         whitelist.setAllowed(address(reentrant), true);
-        vm.expectEmit(true, true, false, true, address(router));
-        emit EscalationRouter.ActionExecuted(worker, address(reentrant), 0, false);
+        vm.expectRevert(abi.encodeWithSignature("ReentrancyGuardReentrantCall()"));
         router.propose(
             worker, address(reentrant), 10 * ONE, abi.encodeCall(ReentrantTarget.reenter, ())
         );
