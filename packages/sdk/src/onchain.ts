@@ -2671,6 +2671,7 @@ export class OnchainLacrewClient implements ProtocolClient {
         | "effectiveQuorumHumanYes"
         | "votingPeriod"
         | "highTierTimelock"
+        | "lowTierDelay"
         | "unanimityFastPath",
     ) =>
       this.publicClient.readContract({
@@ -2689,6 +2690,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       effectiveQuorumHumanYes,
       votingPeriod,
       highTierTimelock,
+      lowTierDelay,
       unanimityFastPath,
     ] = await Promise.all([
       read<bigint>("quorumYes"),
@@ -2701,6 +2703,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       read<bigint>("effectiveQuorumHumanYes"),
       read<bigint>("votingPeriod"),
       read<bigint>("highTierTimelock"),
+      read<bigint>("lowTierDelay"),
       read<boolean>("unanimityFastPath"),
     ]);
     return {
@@ -2714,6 +2717,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       effectiveQuorumHumanYes: effectiveQuorumHumanYes.toString(),
       votingPeriod: Number(votingPeriod),
       highTierTimelock: Number(highTierTimelock),
+      lowTierDelay: Number(lowTierDelay),
       unanimityFastPath,
     };
   }
