@@ -39,10 +39,7 @@ test("builds a prefilled quickstart issue link", () => {
   const url = new URL(
     buildStuckUrl({ argv: ["deploy", "--anvil"], errorLines: ["boom"], cliVersion: "0.1.0" }),
   );
-  assert.equal(
-    url.origin + url.pathname,
-    "https://github.com/marc-aurele-besner/lacrew/issues/new",
-  );
+  assert.equal(url.origin + url.pathname, "https://github.com/lacrew/lacrew/issues/new");
   assert.equal(url.searchParams.get("template"), "quickstart.yml");
   assert.equal(url.searchParams.get("step"), "lacrew deploy");
   assert.equal(url.searchParams.get("error"), "boom");

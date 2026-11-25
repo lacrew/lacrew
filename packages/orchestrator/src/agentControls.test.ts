@@ -218,8 +218,8 @@ describe("renderLayer — a directive reads like the AGENTS.md someone would wri
       label: "crew:github-experts",
       text: "Never merge a PR that touches CI workflows.",
       resources: [
-        { kind: "repo", ref: "marc-aurele-besner/lacrew", note: "contracts need a gas snapshot" },
-        { kind: "repo", ref: "marc-aurele-besner/lacrew.xyz" },
+        { kind: "repo", ref: "lacrew/lacrew", note: "contracts need a gas snapshot" },
+        { kind: "repo", ref: "lacrew/lacrew.xyz" },
       ],
       skills: [
         {
@@ -234,8 +234,8 @@ describe("renderLayer — a directive reads like the AGENTS.md someone would wri
       rendered,
       "Never merge a PR that touches CI workflows.\n\n" +
         "In your care:\n" +
-        "- repo marc-aurele-besner/lacrew — contracts need a gas snapshot\n" +
-        "- repo marc-aurele-besner/lacrew.xyz\n\n" +
+        "- repo lacrew/lacrew — contracts need a gas snapshot\n" +
+        "- repo lacrew/lacrew.xyz\n\n" +
         "Skills:\n" +
         "- Triage a bot PR\n" +
         "  Use when: a dependency bot opens a pull request\n" +

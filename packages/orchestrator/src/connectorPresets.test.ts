@@ -587,12 +587,12 @@ test("a preset route calls the URL the preset wrote down", async () => {
     fetchImpl,
   });
   const res = await registry.call("github.get_pull_request", {
-    owner: "marc-aurele-besner",
+    owner: "lacrew",
     repo: "lacrew",
     number: 94,
   });
   assert.equal(res.ok, true);
-  assert.deepEqual(calls, ["https://api.github.com/repos/marc-aurele-besner/lacrew/pulls/94"]);
+  assert.deepEqual(calls, ["https://api.github.com/repos/lacrew/lacrew/pulls/94"]);
 });
 
 /* ——— the push surface (F2.13) ——— */

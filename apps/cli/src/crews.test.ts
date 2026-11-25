@@ -112,7 +112,7 @@ describe("lacrew crews", () => {
   it("emits the sample input alone so it can be piped into a run", () => {
     const { out } = capture(["sample", "github-experts", "--json"]);
     assert.deepEqual(JSON.parse(out), {
-      owner: "marc-aurele-besner",
+      owner: "lacrew",
       repo: "lacrew",
       number: 94,
     });

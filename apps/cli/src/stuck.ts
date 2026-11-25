@@ -1,6 +1,6 @@
 import { release } from "node:os";
 
-const ISSUES_URL = "https://github.com/marc-aurele-besner/lacrew/issues/new";
+const ISSUES_URL = "https://github.com/lacrew/lacrew/issues/new";
 const MAX_ERROR_CHARS = 800;
 
 export interface StuckInput {

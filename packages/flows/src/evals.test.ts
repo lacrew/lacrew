@@ -310,11 +310,11 @@ test("the runner blocks the network for the duration of a run", async () => {
   const before = globalThis.fetch;
   const { attempts } = await withNetworkBlocked(async () => {
     await assert.rejects(
-      () => fetch("https://api.github.com/repos/marc-aurele-besner/lacrew/pulls/94"),
+      () => fetch("https://api.github.com/repos/lacrew/lacrew/pulls/94"),
       /eval_network_blocked/,
     );
   });
-  assert.deepEqual(attempts, ["https://api.github.com/repos/marc-aurele-besner/lacrew/pulls/94"]);
+  assert.deepEqual(attempts, ["https://api.github.com/repos/lacrew/lacrew/pulls/94"]);
   assert.equal(globalThis.fetch, before, "the real fetch must be restored afterwards");
 });
 
