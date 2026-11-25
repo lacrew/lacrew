@@ -139,7 +139,7 @@ describe("SandboxLedger", () => {
     await ledger.client.proposeHire({ label: "worker" });
     assert.equal(ledger.version, 2);
     // A reverted call commits nothing and stores nothing.
-    await assert.rejects(ledger.client.executeGovernance("42"));
+    await assert.rejects(ledger.client.vetoGovernance("42"));
     assert.equal(ledger.version, 2);
   });
 

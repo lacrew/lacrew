@@ -385,7 +385,6 @@ describe("kernel GovernanceModule: proposals", () => {
     const sim = module();
     const id = low(sim);
     sim.reverts("QuorumNotMet", ROOT, execute(id));
-    sim.reverts("QuorumNotMet", ROOT, execute(99n));
     // The root is every human seat, so its yes skips the low-tier delay.
     vote(sim, ROOT, id);
     sim.send(STRANGER, execute(id));
@@ -522,6 +521,51 @@ describe("kernel GovernanceModule: proposals", () => {
     assert.equal(proposal(sim, id).state, ProposalState.Defeated);
     assert.deepEqual(sim.eventNames(mark), ["ProposalDefeated"]);
     assert.deepEqual(sim.calls, []);
+  });
+
+  it("executes on the last second of the execution window and expires a second later", () => {
+    const sim = module();
+    const window = 14n * ONE_DAY;
+    const edge = low(sim);
+    vote(sim, ROOT, edge);
+    const stale = low(sim);
+    vote(sim, ROOT, stale);
+    // A low-tier proposal's eta (a day) precedes its deadline (three days): the deadline governs.
+    sim.warp(VOTING_PERIOD + window);
+    sim.send(STRANGER, execute(edge));
+    assert.equal(proposal(sim, edge).state, ProposalState.Executed);
+    sim.warp(1n);
+    const mark = sim.events.length;
+    // No revert, no call: a stale yes-majority is closed instead of cashed in.
+    sim.send(STRANGER, execute(stale));
+    assert.equal(proposal(sim, stale).state, ProposalState.Expired);
+    assert.deepEqual(sim.eventNames(mark), ["ProposalExpired"]);
+    assert.deepEqual(sim.lastEvent("ProposalExpired").args, { proposalId: stale });
+    assert.deepEqual(sim.calls, [{ target: TARGET, data: LOW_ACTION }]);
+    sim.reverts("ProposalNotActive", ROOT, execute(stale));
+    sim.reverts("ProposalNotActive", ROOT, (ctx) => governance.vote(ctx, stale, true));
+  });
+
+  it("gives a high-tier proposal its timelock on top of the deadline before it expires", () => {
+    const sim = module();
+    const id = high(sim, TARGET, LOW_ACTION);
+    vote(sim, ROOT, id);
+    // eta = deadline + timelock is the later of the two, so the window ends a timelock later.
+    sim.warp(VOTING_PERIOD + TIMELOCK + 14n * ONE_DAY);
+    sim.send(STRANGER, execute(id));
+    assert.equal(proposal(sim, id).state, ProposalState.Executed);
+
+    const late = high(sim, TARGET, LOW_ACTION);
+    vote(sim, ROOT, late);
+    sim.warp(VOTING_PERIOD + TIMELOCK + 14n * ONE_DAY + 1n);
+    sim.send(STRANGER, execute(late));
+    assert.equal(proposal(sim, late).state, ProposalState.Expired);
+  });
+
+  it("expires an id nobody proposed, whose deadline is zero", () => {
+    const sim = module();
+    sim.send(ROOT, execute(99n));
+    assert.equal(proposal(sim, 99n).state, ProposalState.Expired);
   });
 
   it("before the deadline, a proposal that does not out-vote the no side cannot execute", () => {

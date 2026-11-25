@@ -2380,6 +2380,19 @@ export const governanceModuleAbi = [
   },
   {
     "type": "function",
+    "name": "EXECUTION_WINDOW",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "MAX_TIMELOCK",
     "inputs": [],
     "outputs": [
@@ -3157,6 +3170,19 @@ export const governanceModuleAbi = [
   {
     "type": "event",
     "name": "ProposalExecuted",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "indexed": true,
+        "internalType": "uint256"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "ProposalExpired",
     "inputs": [
       {
         "name": "proposalId",

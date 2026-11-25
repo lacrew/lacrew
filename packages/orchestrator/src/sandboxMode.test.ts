@@ -409,8 +409,8 @@ describe("sandbox story over HTTP", () => {
 
   it("names a revert by the contract's own error", async () => {
     const api = appFor(createSandboxRuntime());
-    // Nothing is pending, so there is nothing for anyone to execute.
-    const res = await api.post("/governance/execute", { proposalId: "99" });
+    // Nothing was ever proposed, so there is nothing for anyone to veto.
+    const res = await api.post("/governance/veto", { proposalId: "99" });
     assert.equal(res.status, 422, JSON.stringify(res.body));
     assert.equal(res.body.reverted, true);
     assert.equal(res.body.simulated, true);
@@ -441,7 +441,7 @@ describe("sandbox story over HTTP", () => {
       "the module named is one of the org's own",
     );
     // Any other revert carries no verdict and no denial.
-    const other = await api.post("/governance/execute", { proposalId: "99" });
+    const other = await api.post("/governance/veto", { proposalId: "99" });
     assert.equal(other.body.verdict, undefined);
     assert.equal("denial" in other.body, false);
   });

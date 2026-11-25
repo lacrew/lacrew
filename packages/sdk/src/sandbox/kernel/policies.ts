@@ -223,7 +223,7 @@ export function denyingModule(
 
 // ——— SpendCapPolicy / WhitelistPolicy ———
 
-/** `setGovernor` on a SpendCapPolicy or WhitelistPolicy: admin-only, once. */
+/** `setGovernor` on a SpendCapPolicy or WhitelistPolicy: admin-only, once; it drops the admin. */
 export function setGovernor(ctx: Ctx, module_: Address, governor_: Address): void {
   const module = moduleOf(ctx, module_, "SpendCapPolicy", "WhitelistPolicy");
   const governor = addr(governor_);
@@ -231,6 +231,7 @@ export function setGovernor(ctx: Ctx, module_: Address, governor_: Address): voi
   if (governor === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
   if (module.governor !== ZERO_ADDRESS) throw new SimRevert("GovernorAlreadySet");
   module.governor = governor;
+  module.admin = ZERO_ADDRESS;
   emit(ctx, addr(module_), module.kind, "GovernorUpdated", { governor });
 }
 

@@ -5,7 +5,8 @@ import {IPolicyModule, Verdict} from "../interfaces/IPolicyModule.sol";
 
 /// @title SpendCapPolicy
 /// @notice Allows spends at or under a per-agent cap; escalates overages.
-/// @dev Mutators gated by admin (deployer) or governor (GovernanceModule).
+/// @dev Mutators gated by admin (deployer) until `setGovernor` binds, then by the governor
+///      alone: binding the governor drops `admin` to zero, so the deployer keeps no authority.
 contract SpendCapPolicy is IPolicyModule {
     uint256 public immutable defaultCap;
     mapping(address => uint256) public agentCap;
@@ -25,12 +26,13 @@ contract SpendCapPolicy is IPolicyModule {
         admin = msg.sender;
     }
 
-    /// @notice Bind constitutional authority. Callable once by admin.
+    /// @notice Bind constitutional authority. Callable once by admin, which it then drops.
     function setGovernor(address governor_) external {
         if (msg.sender != admin) revert NotAuthorized(msg.sender);
         if (governor_ == address(0)) revert ZeroAddress();
         if (governor != address(0)) revert GovernorAlreadySet();
         governor = governor_;
+        admin = address(0);
         emit GovernorUpdated(governor_);
     }
 

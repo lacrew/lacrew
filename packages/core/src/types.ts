@@ -16,7 +16,7 @@ export function defaultHireTier(kind: NodeKind): GovernanceTier {
   return kind === "human_root" ? "high" : "low";
 }
 
-export type GovernanceProposalState = "active" | "executed" | "vetoed" | "defeated";
+export type GovernanceProposalState = "active" | "executed" | "vetoed" | "defeated" | "expired";
 
 /** Onchain governance proposal as read from GovernanceModule. */
 export interface GovernanceProposal {

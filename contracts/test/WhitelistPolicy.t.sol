@@ -39,4 +39,12 @@ contract WhitelistPolicyTest is Test {
         policy.setAllowed(target, true);
         assertTrue(policy.allowed(target));
     }
+
+    function test_bindingGovernorDropsDeployerAdmin() public {
+        address gov = makeAddr("gov");
+        policy.setGovernor(gov);
+        assertEq(policy.admin(), address(0));
+        vm.expectRevert(abi.encodeWithSelector(WhitelistPolicy.NotAuthorized.selector, address(this)));
+        policy.setAllowed(target, true);
+    }
 }

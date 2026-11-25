@@ -95,6 +95,7 @@ const STATE_FROM: Record<number, GovernanceProposalState> = {
   1: "executed",
   2: "vetoed",
   3: "defeated",
+  4: "expired",
 };
 const SEAT_ROLE_FROM: Record<number, GovernanceSeatRole> = { 0: "none", 1: "human", 2: "agent" };
 

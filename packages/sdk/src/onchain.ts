@@ -93,6 +93,7 @@ const STATE_FROM: Record<number, GovernanceProposalState> = {
   1: "executed",
   2: "vetoed",
   3: "defeated",
+  4: "expired",
 };
 
 /** SeatRole enum order in GovernanceModule: None, Human, Agent. */
