@@ -2258,6 +2258,11 @@ export const escalationRouterAbi = [
   },
   {
     "type": "error",
+    "name": "SessionRegistryNotSet",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "SessionScopeDenied",
     "inputs": [
       {

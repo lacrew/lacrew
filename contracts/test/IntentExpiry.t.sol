@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {SessionRegistry} from "../src/SessionRegistry.sol";
@@ -13,7 +14,7 @@ import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 
 /// Intents expire, and state recorded against a node's earlier incarnation (intents,
 /// session keys, allowance) stops working once the address is removed and re-added.
-contract IntentExpiryTest is Test {
+contract IntentExpiryTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal manager = makeAddr("manager");
     address internal worker = makeAddr("worker");
@@ -39,6 +40,12 @@ contract IntentExpiryTest is Test {
         SpendCapPolicy spendCap = new SpendCapPolicy(100 * ONE);
         spendCap.setAgentCap(manager, 300 * ONE);
         router = new EscalationRouter(address(registry), address(spendCap));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         usdc = new MockUSDC();
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));

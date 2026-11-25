@@ -25,6 +25,21 @@ export const sessionScenarios: Scenario[] = [
     });
   }),
 
+  scenario("the router's session registry can be replaced but never cleared", (b) => {
+    b.crew();
+    b.session();
+    b.reverts("NotAuthorized", "stranger", "@router", "setSessionRegistry", ["zero"]);
+    b.reverts("ZeroAddress", "root", "@router", "setSessionRegistry", ["zero"]);
+    // The refused clear changed nothing: keys still pass, strangers still do not.
+    b.allow("key", "worker", "target", 1n);
+    b.proposeReverts("InvalidSession", "stranger", "worker", "target", 1n);
+    // Replacing it with itself is allowed.
+    b.call("root", "@router", "setSessionRegistry", ["@sessions"], {
+      events: ["SessionRegistryUpdated"],
+    });
+    b.allow("key", "worker", "target", 1n);
+  }),
+
   scenario("session scope: proposing and settling are separate grants", (b) => {
     b.crew();
     b.session({ mask: PROPOSE });

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
@@ -32,7 +33,7 @@ contract ReentrantTarget {
 
 /// A call with value is settled pull-style: the target is approved for the value, takes what
 /// it needs, and whatever it leaves goes back to the agent's allowance.
-contract PullSettlementTest is Test {
+contract PullSettlementTest is SessionWiring {
     uint256 internal constant ONE = 1e6;
 
     address internal root = makeAddr("root");
@@ -75,6 +76,12 @@ contract PullSettlementTest is Test {
         PolicyStack stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
         router.setValueRecorder(address(budget));

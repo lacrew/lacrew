@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {SpendCapPolicy} from "../src/policies/SpendCapPolicy.sol";
@@ -11,7 +12,7 @@ import {PolicyStack} from "../src/policies/PolicyStack.sol";
 import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 import {IPolicyModule, Verdict} from "../src/interfaces/IPolicyModule.sol";
 
-contract PerNodePolicyTest is Test {
+contract PerNodePolicyTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal manager = makeAddr("manager");
     address internal worker = makeAddr("worker");
@@ -51,6 +52,12 @@ contract PerNodePolicyTest is Test {
         managerStack = new PolicyStack(mMods);
 
         router = new EscalationRouter(address(registry), address(workerStack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         router.setRateRecorder(address(rateLimit));
         rateLimit.setRecorder(address(router));
         router.setNodePolicy(worker, address(workerStack));

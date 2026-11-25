@@ -150,6 +150,7 @@ export function setRateRecorder(ctx: Ctx, rateRecorder_: Address): void {
 
 export function setSessionRegistry(ctx: Ctx, sessionRegistry_: Address): void {
   onlyGovernorOrBootstrap(ctx);
+  if (addr(sessionRegistry_) === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
   ctx.world.escalationRouter.sessionRegistry = addr(sessionRegistry_);
   emit(ctx, ctx.world.addresses.escalationRouter, CONTRACT, "SessionRegistryUpdated", {
     sessionRegistry: addr(sessionRegistry_),
@@ -430,14 +431,14 @@ function recordRate(ctx: Ctx, agent: Address): void {
 }
 
 /**
- * Unset registry = bootstrap. Otherwise: valid session + scope + maxValue +
- * target + time window. Returns the granted scope mask; every bit when the
- * registry is unset or the agent is acting for itself.
+ * The agent acting for itself needs no session. Anyone else needs a wired
+ * registry and a valid session + scope + maxValue + target + time window.
+ * Returns the granted scope mask; every bit when the agent acts for itself.
  */
 function requireValidSession(ctx: Ctx, agent: Address, target: Address, value: bigint): bigint {
   const state = ctx.world.escalationRouter;
-  if (state.sessionRegistry === ZERO_ADDRESS) return MAX_UINT256;
   if (ctx.sender === agent) return MAX_UINT256;
+  if (state.sessionRegistry === ZERO_ADDRESS) throw new SimRevert("SessionRegistryNotSet");
   requireSessionRegistry(ctx);
   const { valid, maxValue, allowedTarget, scopeMask } = sessionRegistry.keyLimits(
     ctx,

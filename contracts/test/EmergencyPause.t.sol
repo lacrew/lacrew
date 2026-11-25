@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {Treasury} from "../src/Treasury.sol";
@@ -11,7 +12,7 @@ import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 
 /// Emergency pause: any human seat stops settlement and streaming, only the
 /// governance authority lifts it, and reject paths stay open throughout.
-contract EmergencyPauseTest is Test {
+contract EmergencyPauseTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal coHuman = makeAddr("coHuman");
     address internal manager = makeAddr("manager");
@@ -38,6 +39,12 @@ contract EmergencyPauseTest is Test {
         SpendCapPolicy cap = new SpendCapPolicy(100 * ONE);
         cap.setAgentCap(manager, 300 * ONE);
         router = new EscalationRouter(address(registry), address(cap));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         usdc = new MockUSDC();
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));

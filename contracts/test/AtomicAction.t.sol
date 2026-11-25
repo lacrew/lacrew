@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
@@ -21,7 +22,7 @@ contract SilentReverter {
 /// Regression for the audit finding "EscalationRouter settles payment even when the
 /// target call fails": an org purchase through `MarketplacePayments.purchaseFor` that
 /// reverts must not deliver funds, spend allowance, or resolve the intent.
-contract AtomicActionTest is Test {
+contract AtomicActionTest is SessionWiring {
     uint256 internal constant ONE = 1e6;
     bytes32 internal constant CATALOG = keccak256("agent-payroll-manager");
     /// @dev Derived from (seller, CATALOG); set in setUp.
@@ -54,6 +55,12 @@ contract AtomicActionTest is Test {
         spendCap.setAgentCap(root, type(uint256).max);
 
         router = new EscalationRouter(address(registry), address(spendCap));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
 
