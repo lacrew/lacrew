@@ -88,7 +88,7 @@ export const NOT_SIMULATED: Record<string, string> = {
  */
 export const NOT_SIMULATED_CONTRACTS: Record<string, string> = {
   MarketplacePayments:
-    "Buyer-to-seller settlement in real tokens. The sandbox client refuses its methods with SandboxNeedsChainError.",
+    "Buyer-to-seller settlement in real tokens. The sandbox client refuses its methods with SandboxNeedsChainError. Listing ids are derived onchain as keccak256(abi.encode(seller, catalogId)); that derivation is pinned by MarketplacePayments.t.sol (squatting regression) and an SDK test vector, not by a sandbox scenario.",
   MockWETH:
     "Second asset stack. A sandbox org has one asset stack (the primary one); multi-asset orgs need a chain.",
 };

@@ -795,12 +795,12 @@ describe("sandbox client: what needs a chain", () => {
   it("refuses marketplace payments by name", async () => {
     const { client } = sandbox();
     const refusals = [
-      client.quoteListing("skill"),
-      client.getListing("skill"),
-      client.hasPurchased("skill", ROOT),
+      client.quoteListing(ROOT, "skill"),
+      client.getListing(ROOT, "skill"),
+      client.hasPurchased(ROOT, "skill", ROOT),
       client.registerListing({ catalogId: "skill", price: 1n }),
-      client.purchaseListing({ catalogId: "skill" }),
-      client.proposeMarketplacePurchase({ agent: WORKER, catalogId: "skill" }),
+      client.purchaseListing({ seller: ROOT, catalogId: "skill" }),
+      client.proposeMarketplacePurchase({ agent: WORKER, seller: ROOT, catalogId: "skill" }),
       client.marketplaceEarnings(ROOT),
       client.withdrawMarketplaceEarnings(),
     ];

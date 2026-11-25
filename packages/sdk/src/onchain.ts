@@ -8,6 +8,7 @@ import {
   ContractFunctionRevertedError,
   createPublicClient,
   createWalletClient,
+  encodeAbiParameters,
   encodeFunctionData,
   erc20Abi,
   keccak256,
@@ -1482,12 +1483,27 @@ export class OnchainLacrewClient implements ProtocolClient {
   }
 
   /** Catalog ids are strings off-chain; onchain they are their keccak hash. */
-  static listingId(catalogId: string): `0x${string}` {
+  static catalogHash(catalogId: string): `0x${string}` {
     return keccak256(toBytes(catalogId));
+  }
+
+  /**
+   * The onchain id of `seller`'s listing of `catalogId`:
+   * `keccak256(abi.encode(seller, catalogHash))`, as `MarketplacePayments.listingIdFor`.
+   * The seller is part of the id, so two sellers of one catalog id never collide.
+   */
+  static listingId(seller: `0x${string}`, catalogId: string): `0x${string}` {
+    return keccak256(
+      encodeAbiParameters(
+        [{ type: "address" }, { type: "bytes32" }],
+        [seller, OnchainLacrewClient.catalogHash(catalogId)],
+      ),
+    );
   }
 
   /** Price and split for a listing, at the fee currently in force. */
   async quoteListing(
+    seller: `0x${string}`,
     catalogId: string,
   ): Promise<{ gross: bigint; fee: bigint; net: bigint; feeBps: number }> {
     const address = this.requireMarketplace();
@@ -1496,7 +1512,7 @@ export class OnchainLacrewClient implements ProtocolClient {
         address,
         abi: marketplacePaymentsAbi,
         functionName: "quote",
-        args: [OnchainLacrewClient.listingId(catalogId)],
+        args: [OnchainLacrewClient.listingId(seller, catalogId)],
       }) as Promise<readonly [bigint, bigint, bigint]>,
       this.publicClient.readContract({
         address,
@@ -1508,41 +1524,46 @@ export class OnchainLacrewClient implements ProtocolClient {
   }
 
   async getListing(
+    seller: `0x${string}`,
     catalogId: string,
   ): Promise<{ seller: `0x${string}`; price: bigint; active: boolean } | undefined> {
     const result = (await this.publicClient.readContract({
       address: this.requireMarketplace(),
       abi: marketplacePaymentsAbi,
       functionName: "listings",
-      args: [OnchainLacrewClient.listingId(catalogId)],
+      args: [OnchainLacrewClient.listingId(seller, catalogId)],
     })) as readonly [`0x${string}`, bigint, boolean];
-    const [seller, price, active] = result;
-    if (seller === zeroAddress) return undefined;
-    return { seller, price, active };
+    const [owner, price, active] = result;
+    if (owner === zeroAddress) return undefined;
+    return { seller: owner, price, active };
   }
 
   /** True once `buyer` holds a receipt for `catalogId`. */
-  async hasPurchased(catalogId: string, buyer: `0x${string}`): Promise<boolean> {
+  async hasPurchased(
+    seller: `0x${string}`,
+    catalogId: string,
+    buyer: `0x${string}`,
+  ): Promise<boolean> {
     return (await this.publicClient.readContract({
       address: this.requireMarketplace(),
       abi: marketplacePaymentsAbi,
       functionName: "hasPurchased",
-      args: [OnchainLacrewClient.listingId(catalogId), buyer],
+      args: [OnchainLacrewClient.listingId(seller, catalogId), buyer],
     })) as boolean;
   }
 
-  /** List (or reprice) a listing the calling wallet sells. */
+  /** List (or reprice) the calling wallet's listing of `catalogId`. The id is derived from the wallet address, so no other wallet can take it. */
   async registerListing(input: {
     catalogId: string;
     price: bigint;
   }): Promise<{ txHash: `0x${string}`; listingId: `0x${string}` }> {
     const wallet = this.requireWallet();
-    const listingId = OnchainLacrewClient.listingId(input.catalogId);
+    const listingId = OnchainLacrewClient.listingId(wallet.account!.address, input.catalogId);
     const hash = await wallet.writeContract({
       address: this.requireMarketplace(),
       abi: marketplacePaymentsAbi,
       functionName: "registerListing",
-      args: [listingId, input.price],
+      args: [OnchainLacrewClient.catalogHash(input.catalogId), input.price],
       account: wallet.account!,
       chain: wallet.chain,
     });
@@ -1558,13 +1579,14 @@ export class OnchainLacrewClient implements ProtocolClient {
    * quote and the send makes the purchase revert rather than overcharge.
    */
   async purchaseListing(input: {
+    seller: `0x${string}`;
     catalogId: string;
     maxPrice?: bigint;
   }): Promise<{ txHash: `0x${string}`; gross: bigint; fee: bigint; net: bigint }> {
     const wallet = this.requireWallet();
     const market = this.requireMarketplace();
     const buyer = wallet.account!.address;
-    const { gross, fee, net } = await this.quoteListing(input.catalogId);
+    const { gross, fee, net } = await this.quoteListing(input.seller, input.catalogId);
     const maxPrice = input.maxPrice ?? gross;
     // Refuse before touching the token: at the current price the purchase is
     // certain to revert, and the approve that precedes it would still land —
@@ -1605,7 +1627,7 @@ export class OnchainLacrewClient implements ProtocolClient {
       address: market,
       abi: marketplacePaymentsAbi,
       functionName: "purchase",
-      args: [OnchainLacrewClient.listingId(input.catalogId), maxPrice],
+      args: [OnchainLacrewClient.listingId(input.seller, input.catalogId), maxPrice],
       account: wallet.account!,
       chain: wallet.chain,
     });
@@ -1633,6 +1655,8 @@ export class OnchainLacrewClient implements ProtocolClient {
    */
   async proposeMarketplacePurchase(input: {
     agent: `0x${string}`;
+    /** The listing's seller: a catalog id alone names no listing. */
+    seller: `0x${string}`;
     catalogId: string;
     /** Who receives the entitlement. Defaults to the paying agent. */
     buyer?: `0x${string}`;
@@ -1647,12 +1671,16 @@ export class OnchainLacrewClient implements ProtocolClient {
     net: bigint;
   }> {
     const market = this.requireMarketplace();
-    const { gross, fee, net } = await this.quoteListing(input.catalogId);
+    const { gross, fee, net } = await this.quoteListing(input.seller, input.catalogId);
     const buyer = input.buyer ?? input.agent;
     const data = encodeFunctionData({
       abi: marketplacePaymentsAbi,
       functionName: "purchaseFor",
-      args: [OnchainLacrewClient.listingId(input.catalogId), buyer, input.maxPrice ?? gross],
+      args: [
+        OnchainLacrewClient.listingId(input.seller, input.catalogId),
+        buyer,
+        input.maxPrice ?? gross,
+      ],
     });
     const result = await this.proposeIntent({
       agent: input.agent,

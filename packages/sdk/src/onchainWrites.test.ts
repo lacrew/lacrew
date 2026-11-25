@@ -32,6 +32,7 @@ import {
 } from "@lacrew/core";
 import {
   createOnchainClient,
+  OnchainLacrewClient,
   FaucetCooldownError,
   readTokenMetadata,
   type WriteReceipt,
@@ -42,6 +43,7 @@ const MAIN = privateKeyToAccount(
   "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80",
 );
 
+const SELLER = "0x00000000000000000000000000000000000000a1" as const;
 const WORKER = "0x3333333333333333333333333333333333333333" as const;
 const KEY = "0x4444444444444444444444444444444444444444" as const;
 const TARGET_A = "0x5555555555555555555555555555555555555555" as const;
@@ -391,6 +393,23 @@ describe("getSessions maps every bound the registry holds", () => {
   });
 });
 
+describe("listingId derivation", () => {
+  it("matches MarketplacePayments.listingIdFor(seller, keccak256(catalogId))", () => {
+    // cast keccak $(cast abi-encode "f(address,bytes32)" 0x…a1 $(cast keccak "flow-1"))
+    assert.equal(
+      OnchainLacrewClient.listingId(SELLER, "flow-1"),
+      "0xd9fba80e62de207d803fdda3bec10b0dd0d696334959ee12effbdb0736df2e51",
+    );
+  });
+
+  it("gives two sellers of one catalog id different listings", () => {
+    assert.notEqual(
+      OnchainLacrewClient.listingId(SELLER, "flow-1"),
+      OnchainLacrewClient.listingId(WORKER, "flow-1"),
+    );
+  });
+});
+
 describe("purchaseListing price guard", () => {
   it("refuses a quote above maxPrice before approving or broadcasting anything", async () => {
     const sent: Hex[] = [];
@@ -402,7 +421,7 @@ describe("purchaseListing price guard", () => {
       }),
     });
     await assert.rejects(
-      () => client.purchaseListing({ catalogId: "flow-1", maxPrice: 50n }),
+      () => client.purchaseListing({ seller: SELLER, catalogId: "flow-1", maxPrice: 50n }),
       /exceeds maxPrice 50/,
     );
     // No approve went out: a guaranteed-revert purchase must not leave a live

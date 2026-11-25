@@ -2668,7 +2668,10 @@ export class CrewRuntime {
    * listing, so callers can show a catalog entry as browsable-but-not-buyable
    * rather than inventing a price the chain would not honour.
    */
-  async marketplaceQuote(catalogId: string): Promise<{
+  async marketplaceQuote(
+    seller: `0x${string}`,
+    catalogId: string,
+  ): Promise<{
     listed: boolean;
     gross: string;
     fee: string;
@@ -2681,9 +2684,9 @@ export class CrewRuntime {
       return { listed: false, gross: "0", fee: "0", net: "0", feeBps: 0 };
     }
     try {
-      const listing = await this.client.getListing(catalogId);
+      const listing = await this.client.getListing(seller, catalogId);
       if (!listing) return { listed: false, gross: "0", fee: "0", net: "0", feeBps: 0 };
-      const q = await this.client.quoteListing(catalogId);
+      const q = await this.client.quoteListing(seller, catalogId);
       return {
         listed: true,
         gross: q.gross.toString(),
@@ -2700,12 +2703,13 @@ export class CrewRuntime {
   }
 
   async marketplaceEntitlement(
+    seller: `0x${string}`,
     catalogId: string,
     buyer: `0x${string}`,
   ): Promise<{ purchased: boolean }> {
     if (!isOnchainClient(this.client)) return { purchased: false };
     try {
-      return { purchased: await this.client.hasPurchased(catalogId, buyer) };
+      return { purchased: await this.client.hasPurchased(seller, catalogId, buyer) };
     } catch {
       return { purchased: false };
     }
@@ -2719,12 +2723,13 @@ export class CrewRuntime {
    * paid product for free.
    */
   async marketplaceEntitlements(
+    seller: `0x${string}`,
     catalogId: string,
     buyers: `0x${string}`[],
   ): Promise<{ entitlements: Record<string, boolean>; purchased: boolean }> {
     const entitlements: Record<string, boolean> = {};
     for (const buyer of buyers) {
-      entitlements[buyer] = (await this.marketplaceEntitlement(catalogId, buyer)).purchased;
+      entitlements[buyer] = (await this.marketplaceEntitlement(seller, catalogId, buyer)).purchased;
     }
     return { entitlements, purchased: Object.values(entitlements).some(Boolean) };
   }
@@ -2735,6 +2740,8 @@ export class CrewRuntime {
    * approves — callers must not treat anything but `ALLOW` as a completed buy.
    */
   async marketplacePurchase(input: {
+    /** The listing's seller; a listing id is derived from (seller, catalogId). */
+    seller: `0x${string}`;
     catalogId: string;
     agent: `0x${string}`;
     buyer?: `0x${string}`;
@@ -2753,7 +2760,7 @@ export class CrewRuntime {
     // The router only accepts a propose signed by a live session key for the
     // paying agent, so ensure one exists and sign with it — the root wallet is
     // not a session and would be rejected.
-    const quote = await this.client.quoteListing(input.catalogId);
+    const quote = await this.client.quoteListing(input.seller, input.catalogId);
     const market = this.client.addresses.marketplacePayments;
     if (!market) throw new Error("marketplace_not_deployed");
 
@@ -2771,6 +2778,7 @@ export class CrewRuntime {
     });
     const result = await this.client.proposeMarketplacePurchase({
       agent: input.agent,
+      seller: input.seller,
       catalogId: input.catalogId,
       buyer: input.buyer,
       account: this.sessionSignerAccount(input.agent, quote.gross, market),
@@ -2780,6 +2788,7 @@ export class CrewRuntime {
       at: new Date().toISOString(),
       payload: {
         catalogId: input.catalogId,
+        seller: input.seller,
         agent: input.agent,
         buyer: input.buyer ?? input.agent,
         intentId: result.intentId,

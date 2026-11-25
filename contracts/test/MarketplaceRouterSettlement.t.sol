@@ -22,7 +22,9 @@ import {IPolicyModule} from "../src/interfaces/IPolicyModule.sol";
 contract MarketplaceRouterSettlementTest is Test {
     uint256 internal constant ONE = 1e6;
     uint256 internal constant PRICE = 100 * ONE;
-    bytes32 internal constant LISTING = keccak256("agent-payroll-manager");
+    bytes32 internal constant CATALOG = keccak256("agent-payroll-manager");
+    /// @dev Derived from (seller, CATALOG); set in setUp.
+    bytes32 internal LISTING;
 
     address internal root = makeAddr("root");
     address internal agentA = makeAddr("agentA");
@@ -46,6 +48,8 @@ contract MarketplaceRouterSettlementTest is Test {
 
         market = new MarketplacePayments(address(usdc), platform, governor, 2000);
 
+        LISTING = market.listingIdFor(seller, CATALOG);
+
         WhitelistPolicy whitelist = new WhitelistPolicy();
         whitelist.setAllowed(address(market), true);
         IPolicyModule[] memory modules = new IPolicyModule[](2);
@@ -58,7 +62,7 @@ contract MarketplaceRouterSettlementTest is Test {
         vm.prank(governor);
         market.setSettlementRouter(address(router));
         vm.prank(seller);
-        market.registerListing(LISTING, PRICE);
+        market.registerListing(CATALOG, PRICE);
 
         usdc.mint(address(this), 1_000 * ONE);
         usdc.approve(address(treasury), type(uint256).max);

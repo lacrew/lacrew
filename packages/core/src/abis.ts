@@ -7161,6 +7161,30 @@ export const marketplacePaymentsAbi = [
   },
   {
     "type": "function",
+    "name": "listingIdFor",
+    "inputs": [
+      {
+        "name": "seller",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "catalogId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "stateMutability": "pure"
+  },
+  {
+    "type": "function",
     "name": "listings",
     "inputs": [
       {
@@ -7306,7 +7330,7 @@ export const marketplacePaymentsAbi = [
     "name": "registerListing",
     "inputs": [
       {
-        "name": "listingId",
+        "name": "catalogId",
         "type": "bytes32",
         "internalType": "bytes32"
       },
@@ -7316,7 +7340,13 @@ export const marketplacePaymentsAbi = [
         "internalType": "uint256"
       }
     ],
-    "outputs": [],
+    "outputs": [
+      {
+        "name": "listingId",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
     "stateMutability": "nonpayable"
   },
   {

@@ -3249,10 +3249,14 @@ export function createOrchestratorApp(options: OrchestratorAppOptions): Hono {
   app.get("/marketplace/quote", async (c) => {
     const catalogId = c.req.query("catalogId");
     if (!catalogId) return jsonBig(c, { error: "catalogId_required" }, 400);
+    const seller = c.req.query("seller");
+    if (!seller || !/^0x[0-9a-fA-F]{40}$/.test(seller)) {
+      return jsonBig(c, { error: "seller_required" }, 400);
+    }
     const buyer = c.req.query("buyer") as `0x${string}` | undefined;
-    const quote = await runtime.marketplaceQuote(catalogId);
+    const quote = await runtime.marketplaceQuote(seller as `0x${string}`, catalogId);
     const entitlement = buyer
-      ? await runtime.marketplaceEntitlement(catalogId, buyer)
+      ? await runtime.marketplaceEntitlement(seller as `0x${string}`, catalogId, buyer)
       : { purchased: false };
     return jsonBig(c, { ...quote, ...entitlement, mode: runtime.mode, chainId: runtime.chainId });
   });
@@ -3266,6 +3270,10 @@ export function createOrchestratorApp(options: OrchestratorAppOptions): Hono {
   app.get("/marketplace/entitlement", async (c) => {
     const catalogId = c.req.query("catalogId");
     if (!catalogId) return jsonBig(c, { error: "catalogId_required" }, 400);
+    const seller = c.req.query("seller");
+    if (!seller || !/^0x[0-9a-fA-F]{40}$/.test(seller)) {
+      return jsonBig(c, { error: "seller_required" }, 400);
+    }
     const buyers = (c.req.query("buyers") ?? "")
       .split(",")
       .map((b) => b.trim())
@@ -3275,8 +3283,18 @@ export function createOrchestratorApp(options: OrchestratorAppOptions): Hono {
     if (!buyers.every((b) => /^0x[0-9a-fA-F]{40}$/.test(b))) {
       return jsonBig(c, { error: "buyers_must_be_addresses" }, 400);
     }
-    const result = await runtime.marketplaceEntitlements(catalogId, buyers as `0x${string}`[]);
-    return jsonBig(c, { catalogId, ...result, mode: runtime.mode, chainId: runtime.chainId });
+    const result = await runtime.marketplaceEntitlements(
+      seller as `0x${string}`,
+      catalogId,
+      buyers as `0x${string}`[],
+    );
+    return jsonBig(c, {
+      seller,
+      catalogId,
+      ...result,
+      mode: runtime.mode,
+      chainId: runtime.chainId,
+    });
   });
 
   app.get("/marketplace/earnings", async (c) => {
@@ -3325,14 +3343,19 @@ export function createOrchestratorApp(options: OrchestratorAppOptions): Hono {
   app.post("/marketplace/purchase", async (c) => {
     const body = await bodyOf<{
       catalogId?: string;
+      seller?: `0x${string}`;
       agent?: `0x${string}`;
       buyer?: `0x${string}`;
     }>(c);
     if (!body.catalogId?.trim()) return jsonBig(c, { error: "catalogId_required" }, 400);
+    if (!body.seller || !/^0x[0-9a-fA-F]{40}$/.test(body.seller)) {
+      return jsonBig(c, { error: "seller_required" }, 400);
+    }
     if (!body.agent) return jsonBig(c, { error: "agent_required" }, 400);
     try {
       const result = await runtime.marketplacePurchase({
         catalogId: body.catalogId.trim(),
+        seller: body.seller,
         agent: body.agent,
         buyer: body.buyer,
       });

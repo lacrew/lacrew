@@ -41,7 +41,9 @@ contract PolicyModuleListingTest is Test {
     TimeWindowPolicy internal listedModule;
 
     uint256 internal constant ONE = 1e6;
-    bytes32 internal constant LISTING = keccak256("policy-module:office-hours");
+    bytes32 internal constant CATALOG = keccak256("policy-module:office-hours");
+    /// @dev Derived from (seller, CATALOG); set in setUp.
+    bytes32 internal LISTING;
 
     function setUp() public {
         registry = new OrgRegistry(root);
@@ -74,11 +76,12 @@ contract PolicyModuleListingTest is Test {
 
         usdc = new MockUSDC();
         market = new MarketplacePayments(address(usdc), platform, root, 2000);
+        LISTING = market.listingIdFor(seller, CATALOG);
         usdc.mint(worker, 1_000 * ONE);
         vm.prank(worker);
         usdc.approve(address(market), type(uint256).max);
         vm.prank(seller);
-        market.registerListing(LISTING, 25 * ONE);
+        market.registerListing(CATALOG, 25 * ONE);
 
         // Midday, so the listed window is shut whenever a test asks.
         vm.warp((block.timestamp / 1 days + 1) * 1 days + 12 hours);
