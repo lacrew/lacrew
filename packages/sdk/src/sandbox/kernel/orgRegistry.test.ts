@@ -245,4 +245,50 @@ describe("kernel OrgRegistry", () => {
       sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, MANAGER, ROOT));
     });
   });
+
+  describe("depth cap (MAX_DEPTH)", () => {
+    const MAX_DEPTH = 32;
+    const seat = (i: number) => `0x${(0x3000 + i).toString(16).padStart(40, "0")}` as Address;
+
+    /** A chain seat(1) .. seat(n), seat(1) under the root: seat(i) sits at depth i. */
+    function chain(n: number): Sim {
+      const sim = registry();
+      for (let i = 1; i <= n; i++) {
+        sim.send(ROOT, (ctx) =>
+          orgRegistry.addNode(ctx, seat(i), NodeKind.ManagerAgent, i === 1 ? ROOT : seat(i - 1)),
+        );
+      }
+      return sim;
+    }
+
+    it("addNode refuses a seat below depth 32 with MaxDepthExceeded(account)", () => {
+      const sim = chain(MAX_DEPTH);
+      assert.throws(
+        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, seat(32))),
+        { errorName: "MaxDepthExceeded", args: { account: A } },
+      );
+      assert.equal(sim.read((ctx) => orgRegistry.getChildren(ctx, seat(32))).length, 0);
+      // Depth 32 itself is allowed: the parent one level up still takes a report.
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, seat(31)));
+    });
+
+    it("reparent can build past the cap; walks over it then name the node they started from", () => {
+      const sim = chain(MAX_DEPTH);
+      // A short branch moved under the deepest seat ends up 33..35 deep: reparent checks no depth.
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.ManagerAgent, ROOT));
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, B, NodeKind.ManagerAgent, A));
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, C, NodeKind.ManagerAgent, B));
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, A, seat(32)));
+      // The ancestor walk from C is 35 hops: refused, naming C.
+      assert.throws(() => sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(1), C)), {
+        errorName: "MaxDepthExceeded",
+        args: { account: C },
+      });
+      // addNode under A (depth 33): `_depth` overruns and names the parent, not the new account.
+      assert.throws(
+        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, WORKER, NodeKind.WorkerAgent, A)),
+        { errorName: "MaxDepthExceeded", args: { account: A } },
+      );
+    });
+  });
 });

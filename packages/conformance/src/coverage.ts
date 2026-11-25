@@ -62,8 +62,6 @@ export const NOT_SIMULATED: Record<string, string> = {
   "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
-  "OrgRegistry.MaxDepthExceeded":
-    "Gas guard: caps tree depth at MAX_DEPTH (32) so the ancestor walk fits a block. Reaching it needs a chain over 32 seats deep; the sandbox kernel does not model the cap. Covered by OrgRegistry.t.sol.",
   "Treasury.withdraw":
     "High-tier governed payout of liquid funds out of the treasury. Not modelled by the sandbox kernel. TODO: mirror it in the kernel.",
   "GovernanceModule.WithdrawNotHighTier":
