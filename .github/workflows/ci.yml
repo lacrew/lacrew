@@ -17,7 +17,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.9.0
+          version: v1.10.0
       - name: Install pinned contract deps
         run: bash script/install-libs.sh
       - name: Build
@@ -42,7 +42,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.9.0
+          version: v1.10.0
       - name: Install contract deps
         working-directory: contracts
         run: |
@@ -90,7 +90,7 @@ jobs:
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.9.0
+          version: v1.10.0
       - name: Install contract deps
         working-directory: contracts
         run: |
@@ -155,7 +155,7 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           # Pinned; config.toml was migrated to the v3 keys ([inbucket] -> [local_smtp]).
-          version: 3.3.0
+          version: 3.4.0
       # Postgres only — no auth/storage/studio containers. `db start` blocks
       # until the database is healthy, so the first query cannot race startup.
       - run: supabase db start
