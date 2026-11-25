@@ -2673,6 +2673,45 @@ export const governanceModuleAbi = [
   },
   {
     "type": "function",
+    "name": "proposalSnapshots",
+    "inputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "seatEpoch",
+        "type": "uint64",
+        "internalType": "uint64"
+      },
+      {
+        "name": "unanimityFastPath",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "quorum",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalVotingPower",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "totalHumanVotingPower",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "proposals",
     "inputs": [
       {
@@ -2825,6 +2864,48 @@ export const governanceModuleAbi = [
     ],
     "outputs": [],
     "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "seatAt",
+    "inputs": [
+      {
+        "name": "voter",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "epoch",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "power",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "role",
+        "type": "uint8",
+        "internalType": "enum GovernanceModule.SeatRole"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "seatEpoch",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint64",
+        "internalType": "uint64"
+      }
+    ],
+    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -3492,6 +3573,22 @@ export const governanceModuleAbi = [
     "inputs": [
       {
         "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotSeatedAtProposal",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "voter",
         "type": "address",
         "internalType": "address"
       }
