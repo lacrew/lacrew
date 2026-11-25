@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {SpendCapPolicy} from "../src/policies/SpendCapPolicy.sol";
@@ -139,7 +140,7 @@ contract CumulativeValuePolicyTest is Test {
 }
 
 /// End to end through the router: splitting a spend no longer settles it.
-contract CumulativeValueRouterTest is Test {
+contract CumulativeValueRouterTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal manager = makeAddr("manager");
     address internal worker = makeAddr("worker");
@@ -183,6 +184,13 @@ contract CumulativeValueRouterTest is Test {
         PolicyStack customStack = new PolicyStack(customMods);
 
         router = new EscalationRouter(address(registry), address(defaultStack));
+        {
+            address[] memory agents_ = new address[](3);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            agents_[2] = other;
+            _wireSessions(router, registry, root, agents_);
+        }
         router.setValueRecorder(address(globalBudget));
         globalBudget.setRecorder(address(router));
         customBudget.setRecorder(address(router));

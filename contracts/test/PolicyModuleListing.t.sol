@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {GovernanceModule} from "../src/GovernanceModule.sol";
@@ -21,7 +22,7 @@ import {IPolicyModule, Verdict} from "../src/interfaces/IPolicyModule.sol";
 ///         settling in USDC leaves the node's stack exactly as the org voted,
 ///         deploying the would-be stack is inert, and only `execute` puts the
 ///         bought module in the path of `check`.
-contract PolicyModuleListingTest is Test {
+contract PolicyModuleListingTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal worker = makeAddr("worker");
     address internal target = makeAddr("target");
@@ -60,6 +61,11 @@ contract PolicyModuleListingTest is Test {
         votedStack = new PolicyStack(voted);
 
         router = new EscalationRouter(address(registry), address(votedStack));
+        {
+            address[] memory agents_ = new address[](1);
+            agents_[0] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         router.setNodePolicy(worker, address(votedStack));
 
         // Governor last: from here a stack change is a vote, which is the whole

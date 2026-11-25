@@ -402,10 +402,24 @@ describe("kernel EscalationRouter: sessions", () => {
     sim.reverts("RateLimitExceeded", KEY, propose(1n));
   });
 
-  it("with no session registry wired, anyone may propose for an agent", () => {
+  it("with no session registry wired, a stranger cannot propose for an agent", () => {
     const sim = crewOrg();
-    sim.send(ROOT, (ctx) => escalationRouter.setSessionRegistry(ctx, ZERO_ADDRESS));
-    assert.equal(sim.send(STRANGER, propose(1n)).verdict, Verdict.ALLOW);
+    // A router whose registry was never wired (the on-chain constructor leaves it zero).
+    sim.world.escalationRouter.sessionRegistry = ZERO_ADDRESS;
+    sim.reverts("SessionRegistryNotSet", STRANGER, propose(1n));
+    assert.equal(sim.world.escalationRouter.nextIntentId, 1n);
+    // The agent acting for itself still needs no session.
+    assert.equal(sim.send(WORKER, propose(1n)).verdict, Verdict.ALLOW);
+  });
+
+  it("refuses to clear the session registry", () => {
+    const sim = crewOrg();
+    const wired = sim.world.escalationRouter.sessionRegistry;
+    sim.reverts("ZeroAddress", ROOT, (ctx) =>
+      escalationRouter.setSessionRegistry(ctx, ZERO_ADDRESS),
+    );
+    assert.equal(sim.world.escalationRouter.sessionRegistry, wired);
+    sim.reverts("InvalidSession", STRANGER, propose(1n));
   });
 });
 
