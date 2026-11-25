@@ -313,7 +313,11 @@ Quorum voting over structure, budgets, and policy upgrades. Two tiers:
 Seats are role-weighted (`SeatRole.Human | Agent`); agent seats carry review
 authority but human seats hold final say on high tier. Any funded Human seat
 may veto a proposal that exists; `veto` of an id no proposal holds reverts
-(`ProposalNotFound`).
+(`ProposalNotFound`). The outgoing root cannot veto its own replacement: once
+another seated Human has voted yes on a `rotateRoot` proposal, the root's `veto`
+reverts `OutgoingRootVetoIgnored` (that Human's seat and power are checked at
+veto time, so an unseated voter no longer counts). An org whose only Human seat
+is the root keeps its veto, and every other Human's veto still works.
 
 **Defeat.** Once the voting deadline has passed, `execute` closes a proposal
 with more weight against than for as `Defeated` instead of running it. Each

@@ -46,7 +46,9 @@ interface IRootRotatable {
 ///      (OrgRegistry, SessionRegistry), so a lost or compromised key is a High-tier
 ///      proposal away from recovery rather than a redeploy. Any proposal that reaches a
 ///      root rotation or a session issuer change on another contract is forced High tier
-///      too, alongside governor transfers.
+///      too, alongside governor transfers. The outgoing root cannot veto its own
+///      replacement once another Human seat has voted yes on it; an org whose only
+///      Human seat is the root keeps that veto.
 contract GovernanceModule {
     enum Tier {
         Low,
@@ -92,6 +94,9 @@ contract GovernanceModule {
     ///         for one. Kept beside the struct so the `proposals` getter keeps its shape.
     mapping(uint256 => uint256) public noHumanVotes;
     mapping(uint256 => mapping(address => bool)) public hasVoted;
+    /// @dev Human seats that voted yes on a proposal, in vote order. Lets `veto` ask
+    ///      whether a Human seat other than the outgoing root backs a root rotation.
+    mapping(uint256 => address[]) private yesHumanVoters;
     /// @notice Role-weighted seat power. Zero means the address cannot vote.
     mapping(address => uint256) public votingPower;
     /// @notice Human vs agent seat. Agent yes-weight counts for low tier only.
@@ -214,6 +219,9 @@ contract GovernanceModule {
     error ActionNotLowTier(bytes4 selector);
     /// @dev Yes-weight does not exceed no-weight; the proposal cannot execute yet.
     error Outvoted(uint256 proposalId);
+    /// @dev The outgoing root cannot veto its own replacement once another Human seat
+    ///      has voted yes on it.
+    error OutgoingRootVetoIgnored(uint256 proposalId);
     error InvalidLowTierDelay(uint256 lowTierDelay);
 
     /// @dev Root acts directly; the module itself qualifies so an executed High-tier
@@ -507,6 +515,7 @@ contract GovernanceModule {
             p.yesVotes += weight;
             if (seatRole[msg.sender] == SeatRole.Human) {
                 p.yesHumanVotes += weight;
+                yesHumanVoters[proposalId].push(msg.sender);
             }
         } else {
             p.noVotes += weight;
@@ -530,8 +539,37 @@ contract GovernanceModule {
         // written to an empty slot would be overwritten by the proposal that takes it.
         if (p.target == address(0)) revert ProposalNotFound(proposalId);
         if (p.state != ProposalState.Active) revert ProposalNotActive(proposalId);
+        if (msg.sender == humanRoot && _rotatesRootAway(p) && _otherHumanVotedYes(proposalId)) {
+            revert OutgoingRootVetoIgnored(proposalId);
+        }
         p.state = ProposalState.Vetoed;
         emit ProposalVetoed(proposalId, msg.sender);
+    }
+
+    /// @dev True when the proposal calls `rotateRoot` (here or on a governed contract)
+    ///      naming a root other than the current one.
+    function _rotatesRootAway(Proposal storage p) private view returns (bool) {
+        bytes memory data = p.data;
+        if (data.length < 36) return false;
+        bytes4 selector;
+        uint256 newRoot;
+        assembly {
+            selector := mload(add(data, 32))
+            newRoot := mload(add(data, 36))
+        }
+        if (selector != ROTATE_ROOT_SELECTOR && selector != this.rotateRoot.selector) return false;
+        return address(uint160(newRoot)) != humanRoot;
+    }
+
+    /// @dev Whether a current Human seat other than the root has voted yes. An org whose
+    ///      only Human seat is the root never satisfies this, so its root keeps its veto.
+    function _otherHumanVotedYes(uint256 proposalId) private view returns (bool) {
+        address[] storage voters = yesHumanVoters[proposalId];
+        for (uint256 i = 0; i < voters.length; i++) {
+            address v = voters[i];
+            if (v != humanRoot && seatRole[v] == SeatRole.Human && votingPower[v] > 0) return true;
+        }
+        return false;
     }
 
     /// @notice Execute a proposal that has met the tier's effective quorum, whose

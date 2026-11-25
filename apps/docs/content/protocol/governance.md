@@ -29,6 +29,8 @@ Agent seats may vote on a high-tier proposal, and their weight shows in `yesVote
 
 `veto` needs a proposal that exists. Vetoing an id nobody has proposed yet reverts with `ProposalNotFound`.
 
+The outgoing root cannot veto its own replacement. On a `rotateRoot` proposal naming a different root, once another seated Human has voted yes, the root's `veto` reverts `OutgoingRootVetoIgnored`. That Human's seat and power are read at veto time, so a yes from someone unseated since no longer counts, and the root's own yes never does. The root's veto stands before that yes vote and on every other proposal, an org whose only Human is the root keeps it, and any other Human's veto still works.
+
 ## Execution
 
 Only a seated voter (`votingPower > 0`), or the root while it may act, can `propose`. Proposals bind `target` + `calldata`. On `execute`, the module calls `target.call(data)` after quorum and the tier's `eta` (high-tier timelock or low-tier delay) or human unanimity. OrgRegistry / Treasury accept mutations from the governor address after bootstrap `setGovernor`. Proposals may target the GovernanceModule itself to retune quorums, weights, or timing — but only at High tier, so agent seats can never re-weight the electorate through a low-tier vote.
