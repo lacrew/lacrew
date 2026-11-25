@@ -3661,14 +3661,11 @@ export class CrewRuntime {
     checked: number;
   }> {
     if (!isProtocolClient(this.client)) return { executed: [], checked: 0 };
-    const [proposals, config] = await Promise.all([
-      this.client.getProposals(),
-      this.client.readGovernanceConfig(),
-    ]);
+    const proposals = await this.client.getProposals();
     const now = Math.floor(this.nowMs() / 1000);
     const executed: Array<{ proposalId: string; txHash?: `0x${string}`; simTxId?: string }> = [];
     for (const p of proposals) {
-      const decision = decideAutoExecute(p, config, now);
+      const decision = decideAutoExecute(p, now);
       if (!decision.execute) continue;
       try {
         const result = await this.executeGovernance(p.id);

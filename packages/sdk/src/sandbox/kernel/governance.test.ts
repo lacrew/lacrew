@@ -717,7 +717,10 @@ describe("kernel GovernanceModule: seat snapshots (LC-17)", () => {
     const id = low(sim);
     const snap = snapshot(sim, id);
     assert.equal(snap.seatEpoch, sim.world.governance.seatEpoch);
-    assert.equal(snap.quorum, sim.read((ctx) => governance.effectiveQuorumYes(ctx)));
+    assert.equal(
+      snap.quorum,
+      sim.read((ctx) => governance.effectiveQuorumYes(ctx)),
+    );
     assert.equal(snap.totalVotingPower, 3n);
     assert.equal(snap.totalHumanVotingPower, 2n);
     assert.equal(snap.unanimityFastPath, true);

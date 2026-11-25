@@ -406,9 +406,11 @@ contract GovernanceModule {
     ///         the human quorum, the timelock and the veto window all apply.
     /// @dev The old root's Human seat moves to `newRoot` with its weight; if `newRoot`
     ///      already holds a Human seat (a partner being promoted), the old seat is simply
-    ///      revoked. Either way the retired key loses its vote, its veto and its direct
-    ///      admin in the same step it loses the root. Votes it already cast on open
-    ///      proposals stand; any remaining human can veto those.
+    ///      revoked. Either way the retired key loses its veto, its direct admin and its
+    ///      vote on every proposal created from then on, in the same step it loses the
+    ///      root. On proposals already open it keeps its snapshot weight, like any seat
+    ///      revoked mid-vote, and the new key (seated by the rotation) cannot vote on
+    ///      them; any remaining human, the new root included, can veto those.
     ///
     ///      Rotating every contract in one call keeps them from disagreeing about who
     ///      the root is; a rotation that fails on any of them reverts as a whole.

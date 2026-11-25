@@ -37,9 +37,16 @@ Only a seated voter (`votingPower > 0`), or the root while it may act, can `prop
 
 ## Voting power
 
+A proposal is decided on the seats that existed when it was created. `propose` records the seat epoch, the tier's effective quorum, the total and human seat weight, and the `unanimityFastPath` switch in `proposalSnapshots(id)`. `vote` weighs each ballot by the voter's seat at that epoch (`seatAt(voter, epoch)`), and `execute` gates on the recorded quorum and unanimity bar, never on the live ones. So:
+
+- A seat granted after the proposal was created cannot vote on it: `vote` reverts `NotSeatedAtProposal`.
+- A seat re-weighted while the vote runs votes with its snapshot weight, and no change to seats, quorums or the fast-path switch moves the proposal's bars.
+- A seat revoked while the vote runs keeps its snapshot weight on that proposal: votes it cast stand, and it may still vote. It cannot vote on proposals created after the revocation. Dropping its votes instead would let whoever administers seats move the tally of an open proposal, which is what the snapshot prevents.
+- The veto is live, not snapshotted: whoever holds a funded Human seat when it is used may veto.
+
 Seats are role-weighted (`votingPower` + `seatRole`): humans decide high-tier final say; agent yes-weight counts for low tier only. The root is seeded as a human seat at deploy (default weight 2 vs agent weight 1), so a founder outweighs any single agent seat from block one.
 
-**Bootstrap safety:** the quorum `execute()` enforces is the configured value clamped to the seated weight (`effectiveQuorumYes` / `effectiveQuorumHumanYes`). A solo founder is never deadlocked behind a quorum sized for seats that do not exist yet; seating more weight restores the configured bar automatically.
+**Bootstrap safety:** the quorum a proposal records at creation is the configured value clamped to the seated weight (`effectiveQuorumYes` / `effectiveQuorumHumanYes`). A solo founder is never deadlocked behind a quorum sized for seats that do not exist yet; seating more weight restores the configured bar automatically.
 
 ## More than one human
 
@@ -57,7 +64,7 @@ There is no key that can hand out a human seat. `admitHuman` / `removeHuman` —
 
 Veto is shared, not delegated: every funded human seat holds it outright, with no quorum and no delay. The root's _extra_ privileges (quorums, timing, agent seats) hold only while it still holds a human seat of its own — revoke the seat and the address is a stranger to the module. The one carve-out is a module deployed with `rootPower_ = 0`: while `humanSeatCount` is zero, the root may seat the first human directly, and the carve-out closes behind it.
 
-A seat with power 0 is a revoked seat, not an observer — `vote()` reverts `NoVotingPower`, and veto rights derive from funded human seats. Watching without voting is a workspace concern, not a chain one.
+A seat with power 0 is a revoked seat, not an observer — `vote()` reverts `NoVotingPower` on any proposal created after the revocation, and veto rights derive from funded human seats. Watching without voting is a workspace concern, not a chain one.
 
 In the tree, extra humans are `HumanRoot` nodes parented to the org's single root node (one tree, not a forest). The node draws the chart; the seat carries the authority. See [SPEC §3.1 / §6.1](../spec.md) and [Security model](./security.md) for what a compromise of one human out of two actually costs.
 

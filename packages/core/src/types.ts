@@ -38,6 +38,31 @@ export interface GovernanceProposal {
   deadline: number;
   eta: number;
   state: GovernanceProposalState;
+  /**
+   * What the proposal is decided on, frozen when it was created. Absent from
+   * clients that do not read it (the in-memory test client).
+   */
+  snapshot?: GovernanceProposalSnapshot;
+}
+
+/**
+ * `GovernanceModule.proposalSnapshots(id)`: the electorate and the bars a
+ * proposal was created with. Votes are weighed by each seat as it stood at
+ * `seatEpoch`, and `execute()` gates on `quorum` and on the unanimity bar
+ * here, never on the live config — a seat granted, re-weighted or revoked
+ * after creation, or a quorum changed since, does not move them.
+ */
+export interface GovernanceProposalSnapshot {
+  /** The seat epoch votes are weighed at (`seatAt(voter, seatEpoch)`). */
+  seatEpoch: string;
+  /** The tier's effective quorum: yes-weight on low tier, human yes-weight on high. */
+  quorum: string;
+  /** All seat weight at creation. */
+  totalVotingPower: string;
+  /** Human seat weight at creation: the unanimity fast-path bar. */
+  totalHumanVotingPower: string;
+  /** Whether unanimous human yes skips this proposal's delay. */
+  unanimityFastPath: boolean;
 }
 
 /** Seat classification in GovernanceModule. Agent yes-weight counts for low tier only. */
@@ -88,9 +113,9 @@ export interface GovernanceConfig {
    */
   humanSeatCount?: string;
   /**
-   * Quorum `execute()` actually enforces: the configured value clamped to the
-   * seated weight, so a bootstrap org is never asked for voters that do not
-   * exist. Display these, not the configured values, as the bar to clear.
+   * Quorum a proposal created now would be held to: the configured value
+   * clamped to the seated weight, so a bootstrap org is never asked for voters
+   * that do not exist. An open proposal is held to `snapshot.quorum` instead.
    */
   effectiveQuorumYes?: string;
   effectiveQuorumHumanYes?: string;

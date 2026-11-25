@@ -863,7 +863,7 @@ Commands:
   gov fire <account>        Propose OrgRegistry.removeNode (--rpc)
   gov admit-human <addr> [power]  Propose GovernanceModule.admitHuman — seat a second human (high tier, --rpc)
   gov remove-human <addr>   Propose GovernanceModule.removeHuman — refused for the last human (high tier, --rpc)
-  gov seats                 Print the electorate and the quorums execute() gates on (--rpc)
+  gov seats                 Print the electorate and the quorums new proposals are held to (--rpc)
   gov reparent <acct> <parent>  Propose OrgRegistry.reparent (--rpc)
   gov grant <acct> <amountWei> [--asset <sym>]  Propose EpochStreamer.setGrant (high tier, --rpc)
   gov whitelist <target> [yes|no]  Propose WhitelistPolicy.setAllowed (--rpc)

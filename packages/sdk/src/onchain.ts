@@ -2797,8 +2797,9 @@ export class OnchainLacrewClient implements ProtocolClient {
   }
 
   private async readProposal(id: bigint): Promise<GovernanceProposal> {
-    // The human no-tally lives in its own mapping, beside the proposal struct.
-    const [rawRow, noHumanVotes] = await Promise.all([
+    // The human no-tally and the creation snapshot live in their own mappings,
+    // beside the proposal struct.
+    const [rawRow, noHumanVotes, rawSnapshot] = await Promise.all([
       this.publicClient.readContract({
         address: this.addresses.governanceModule,
         abi: governanceModuleAbi,
@@ -2811,7 +2812,14 @@ export class OnchainLacrewClient implements ProtocolClient {
         functionName: "noHumanVotes",
         args: [id],
       }),
+      this.publicClient.readContract({
+        address: this.addresses.governanceModule,
+        abi: governanceModuleAbi,
+        functionName: "proposalSnapshots",
+        args: [id],
+      }),
     ]);
+    const snap = rawSnapshot as readonly [bigint, boolean, bigint, bigint, bigint];
     const row = rawRow as readonly [
       `0x${string}`,
       number,
@@ -2839,6 +2847,13 @@ export class OnchainLacrewClient implements ProtocolClient {
       deadline: Number(row[8]),
       eta: Number(row[9]),
       state: STATE_FROM[row[10]] ?? "active",
+      snapshot: {
+        seatEpoch: snap[0].toString(),
+        unanimityFastPath: snap[1],
+        quorum: snap[2].toString(),
+        totalVotingPower: snap[3].toString(),
+        totalHumanVotingPower: snap[4].toString(),
+      },
     };
   }
 
