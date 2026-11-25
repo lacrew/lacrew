@@ -61,7 +61,10 @@ contract EpochStreamer {
         epochDuration = epochDuration_;
     }
 
-    function setOperator(address operator_) external onlyOperator {
+    /// @notice Replace the operator. Callable by the operator or, once bound, the
+    ///         governor, so a compromised operator key can be rotated out by governance.
+    function setOperator(address operator_) external {
+        if (msg.sender != operator && msg.sender != governor) revert NotAuthorized(msg.sender);
         if (operator_ == address(0)) revert ZeroAddress();
         operator = operator_;
         emit OperatorUpdated(operator_);

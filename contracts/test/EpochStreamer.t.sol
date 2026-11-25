@@ -117,6 +117,54 @@ contract EpochStreamerTest is Test {
         streamer.setGrant(newbie, 1);
     }
 
+    function test_governorRotatesOperator() public {
+        address gov = makeAddr("gov");
+        address fresh = makeAddr("freshOperator");
+        vm.prank(operator);
+        streamer.setGovernor(gov);
+
+        vm.prank(gov);
+        streamer.setOperator(fresh);
+        assertEq(streamer.operator(), fresh);
+
+        // The replaced (compromised) operator is out.
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(EpochStreamer.NotAuthorized.selector, operator));
+        streamer.setOperator(operator);
+        vm.prank(operator);
+        vm.expectRevert(abi.encodeWithSelector(EpochStreamer.NotOperator.selector, operator));
+        streamer.runNextEpoch();
+    }
+
+    function test_setOperatorRejectsStrangerAndZero() public {
+        address gov = makeAddr("gov");
+        address stranger = makeAddr("stranger");
+        vm.prank(operator);
+        streamer.setGovernor(gov);
+
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(EpochStreamer.NotAuthorized.selector, stranger));
+        streamer.setOperator(stranger);
+
+        vm.prank(gov);
+        vm.expectRevert(EpochStreamer.ZeroAddress.selector);
+        streamer.setOperator(address(0));
+        vm.prank(operator);
+        vm.expectRevert(EpochStreamer.ZeroAddress.selector);
+        streamer.setOperator(address(0));
+    }
+
+    function test_setOperatorBeforeGovernorIsOperatorOnly() public {
+        address stranger = makeAddr("stranger");
+        // No governor bound yet: address(0) must not authorize anyone.
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(EpochStreamer.NotAuthorized.selector, stranger));
+        streamer.setOperator(stranger);
+        vm.prank(operator);
+        streamer.setOperator(stranger);
+        assertEq(streamer.operator(), stranger);
+    }
+
     function test_setGrantsBatchSetsAndClears() public {
         address a = makeAddr("a");
         address b = makeAddr("b");

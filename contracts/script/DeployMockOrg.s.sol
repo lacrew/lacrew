@@ -178,6 +178,7 @@ contract DeployMockOrg is Script {
         d.epochStreamer.setGovernor(address(d.gov));
         d.whitelist.setGovernor(address(d.gov));
         d.spendCap.setGovernor(address(d.gov));
+        d.marketplace.setGovernor(address(d.gov));
     }
 
     /// @notice Seat an optional second human (`SECOND_HUMAN`) as a peer of the root.

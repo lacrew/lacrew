@@ -269,6 +269,11 @@ export async function deployOrg(options: DeployOrgOptions): Promise<DeployedOrg>
     await send(epochStreamer, epochStreamerAbi, "setGovernor", [governanceModule]);
     await send(whitelistPolicy, whitelistPolicyAbi, "setGovernor", [governanceModule]);
     await send(spendCapPolicy, spendCapPolicyAbi, "setGovernor", [governanceModule]);
+    // The governor-only fee, recipient, router and sweep setters belong to the org's
+    // governance too; the root keeps nothing once the handover is done.
+    if (marketplacePayments) {
+      await send(marketplacePayments, marketplacePaymentsAbi, "setGovernor", [governanceModule]);
+    }
   }
 
   const chainId = options.chain?.id ?? (await publicClient.getChainId());
