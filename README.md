@@ -30,6 +30,25 @@ Phase 0 — scaffolding and spec. Contracts and packages contain mock / stub imp
 
 ## Quickstart
 
+### One command
+
+Needs Node >= 22.12, pnpm, git and [Foundry](https://book.getfoundry.sh/getting-started/installation); it checks them first and prints the exact install command for any that is missing.
+
+```bash
+pnpm local
+```
+
+`pnpm local` installs dependencies, seeds `.env` from `.env.example` (never overwriting), installs the Solidity libraries, builds, starts Anvil in the background (pid and log under the git-ignored `.local/`), and deploys the mock org. It is safe to re-run. When it finishes it prints the next steps: start the orchestrator with `pnpm dev`, then
+
+```bash
+curl -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8788/tick   # → "verdict": "ESCALATE"
+pnpm --filter @lacrew/cli exec tsx src/index.ts approve 1 --rpc http://127.0.0.1:8545   # → "verdict": "ALLOW"
+```
+
+Stop the chain with `pnpm local:stop`. The Anvil keys in `.env` are public test keys: never use them on a funded network.
+
+### By hand
+
 ```bash
 pnpm install
 pnpm build
