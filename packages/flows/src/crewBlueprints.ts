@@ -262,8 +262,9 @@ const defiDesk: CrewBlueprint = {
     { change: "Admit a withdrawal address or a bridge", tier: "high" },
     { change: "Raise a seat's cap, or the desk's inventory", tier: "high" },
     { change: "Hire or fire the risk manager", tier: "high" },
-    { change: "Hire or fire a worker seat", tier: "low" },
-    { change: "Rotate an RPC or data vendor", tier: "low" },
+    { change: "Hire a worker seat", tier: "low" },
+    { change: "Fire a worker seat", tier: "high" },
+    { change: "Rotate an RPC or data vendor", tier: "high" },
   ],
   guardrails: [
     {
@@ -598,8 +599,9 @@ const githubExperts: CrewBlueprint = {
     { change: "Raise a seat's cap or the monthly budget", tier: "high" },
     { change: "Change the auto-merge policy (labels, semver band, required checks)", tier: "high" },
     { change: "Hire or fire the review lead", tier: "high" },
-    { change: "Hire or fire a worker seat", tier: "low" },
-    { change: "Rotate the model vendor", tier: "low" },
+    { change: "Hire a worker seat", tier: "low" },
+    { change: "Fire a worker seat", tier: "high" },
+    { change: "Rotate the model vendor", tier: "high" },
   ],
   guardrails: [
     {
@@ -948,8 +950,9 @@ const contentStudio: CrewBlueprint = {
     { change: "Connect a new account or publishing surface", tier: "high" },
     { change: "Raise a seat's cap or the monthly budget", tier: "high" },
     { change: "Hire or fire the editor manager", tier: "high" },
-    { change: "Hire or fire a specialist seat", tier: "low" },
-    { change: "Rotate the image or scheduling vendor", tier: "low" },
+    { change: "Hire a specialist seat", tier: "low" },
+    { change: "Fire a specialist seat", tier: "high" },
+    { change: "Rotate the image or scheduling vendor", tier: "high" },
   ],
   guardrails: [
     {
@@ -1134,7 +1137,8 @@ const researchDesk: CrewBlueprint = {
   governance: [
     { change: "Admitting a new paid data source", tier: "high" },
     { change: "Raising the desk's monthly budget", tier: "high" },
-    { change: "Hiring or retiring a seat", tier: "low" },
+    { change: "Hire a seat", tier: "low" },
+    { change: "Retire a seat", tier: "high" },
   ],
   guardrails: [
     {
@@ -1271,7 +1275,8 @@ const supportDesk: CrewBlueprint = {
   governance: [
     { change: "Adding or removing a queue", tier: "high" },
     { change: "Raising the desk's budget", tier: "high" },
-    { change: "Hiring or retiring a seat", tier: "low" },
+    { change: "Hire a seat", tier: "low" },
+    { change: "Retire a seat", tier: "high" },
   ],
   guardrails: [
     {
@@ -1407,8 +1412,9 @@ const platformOncall: CrewBlueprint = {
   ],
   governance: [
     { change: "Adding a pre-agreed remediation", tier: "high" },
-    { change: "Adding a service to the watch list", tier: "low" },
-    { change: "Hiring or retiring a seat", tier: "low" },
+    { change: "Adding a service to the watch list", tier: "high" },
+    { change: "Hire a seat", tier: "low" },
+    { change: "Retire a seat", tier: "high" },
   ],
   guardrails: [
     {
@@ -1618,8 +1624,9 @@ const lpAdvisor: CrewBlueprint = {
   governance: [
     { change: "Admitting a venue or a withdrawal address", tier: "high" },
     { change: "Raising a seat's cap", tier: "high" },
-    { change: "Adding a wallet to the watch list", tier: "low" },
-    { change: "Hiring or retiring a seat", tier: "low" },
+    { change: "Adding a wallet to the watch list", tier: "high" },
+    { change: "Hire a seat", tier: "low" },
+    { change: "Retire a seat", tier: "high" },
   ],
   guardrails: [
     {
@@ -1864,8 +1871,9 @@ const yieldDesk: CrewBlueprint = {
     { change: "Admitting a lending market or a protocol", tier: "high" },
     { change: "Admitting a payout address", tier: "high" },
     { change: "Raising the allocator's cap or the desk's total allocation", tier: "high" },
-    { change: "Rotating a data vendor", tier: "low" },
-    { change: "Hiring or retiring a worker seat", tier: "low" },
+    { change: "Rotating a data vendor", tier: "high" },
+    { change: "Hire a worker seat", tier: "low" },
+    { change: "Retire a worker seat", tier: "high" },
   ],
   guardrails: [
     {
@@ -2103,8 +2111,8 @@ const riskWatch: CrewBlueprint = {
   governance: [
     { change: "Deactivating a sibling crew's seat", tier: "high" },
     { change: "Hiring or firing the risk lead", tier: "high" },
-    { change: "Adding or removing a protocol from the watch list", tier: "low" },
-    { change: "Changing a threshold", tier: "low" },
+    { change: "Adding or removing a protocol from the watch list", tier: "high" },
+    { change: "Changing a threshold", tier: "high" },
   ],
   guardrails: [
     {
@@ -2334,8 +2342,9 @@ const governanceDesk: CrewBlueprint = {
   governance: [
     { change: "Changing the written mandate", tier: "high" },
     { change: "Changing who the org delegates its voting power to", tier: "high" },
-    { change: "Adding a protocol the desk votes in", tier: "low" },
-    { change: "Hiring or retiring a worker seat", tier: "low" },
+    { change: "Adding a protocol the desk votes in", tier: "high" },
+    { change: "Hire a worker seat", tier: "low" },
+    { change: "Retire a worker seat", tier: "high" },
   ],
   guardrails: [
     {
