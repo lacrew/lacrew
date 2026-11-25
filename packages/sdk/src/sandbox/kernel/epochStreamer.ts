@@ -10,6 +10,9 @@ import type { Ctx } from "./world.js";
 
 const CONTRACT = "EpochStreamer";
 
+/** `EpochStreamer.MAX_RECIPIENTS`: the payroll recipient cap that keeps a full epoch inside a block. */
+const MAX_RECIPIENTS = 100;
+
 export interface EpochStreamerState {
   treasury: Address;
   /** Timestamp at which epoch 1 unlocks. */
@@ -110,7 +113,10 @@ function setGrantInternal(ctx: Ctx, node_: Address, amount: bigint): void {
     }
   } else {
     state.grantAmount[node] = amount;
-    if (!isRecipient) state.recipients.push(node);
+    if (!isRecipient) {
+      if (state.recipients.length >= MAX_RECIPIENTS) throw new SimRevert("TooManyRecipients");
+      state.recipients.push(node);
+    }
   }
   emit(ctx, ctx.world.addresses.epochStreamer, CONTRACT, "GrantUpdated", { node, amount });
 }

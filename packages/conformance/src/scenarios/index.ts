@@ -1,4 +1,5 @@
 import type { Scenario } from "../scenario.js";
+import { fanOutScenarios } from "./fanOut.js";
 import { governanceScenarios } from "./governance.js";
 import { lifecycleScenarios } from "./lifecycle.js";
 import { policyScenarios } from "./policies.js";
@@ -15,6 +16,7 @@ export const SCENARIOS: Scenario[] = [
   ...policyScenarios,
   ...treasuryScenarios,
   ...registryScenarios,
+  ...fanOutScenarios,
   ...governanceScenarios,
   ...rootRotationScenarios,
   ...lifecycleScenarios,

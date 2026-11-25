@@ -8,7 +8,7 @@ import type { Ctx } from "./world.js";
 
 const CONTRACT = "OrgRegistry";
 
-/** `OrgRegistry.MAX_CHILDREN`: the per-node fan-out cap, which rotation must also respect. */
+/** `OrgRegistry.MAX_CHILDREN`: the per-node fan-out cap every path that adds a report respects. */
 const MAX_CHILDREN = 100;
 
 /** `IOrgRegistry.NodeKind`, by ABI value. */
@@ -172,6 +172,9 @@ export function addNode(ctx: Ctx, account_: Address, kind: number, parent_: Addr
   if (nodeAt(state, parent).account === ZERO_ADDRESS) {
     throw new SimRevert("InvalidParent", { parent });
   }
+  if (childrenAt(state, parent).length >= MAX_CHILDREN) {
+    throw new SimRevert("TooManyChildren", { parent });
+  }
 
   bumpGeneration(state, account);
   state.nodes[account] = { account, kind, parent, active: true };
@@ -201,6 +204,10 @@ export function removeNode(ctx: Ctx, account_: Address): void {
 
   const parent = node.parent;
   const kids = state.children[account] ?? [];
+  // The parent loses `account` but gains its children; keep the sibling list bounded.
+  if (childrenAt(state, parent).length - 1 + kids.length > MAX_CHILDREN) {
+    throw new SimRevert("TooManyChildren", { parent });
+  }
   for (const child of kids) {
     // `_nodes[child].parent = parent` writes the slot whether or not a node lives there.
     state.nodes[child] = { ...nodeAt(state, child), parent };
@@ -234,6 +241,9 @@ export function reparent(ctx: Ctx, account_: Address, newParent_: Address): void
 
   const oldParent = node.parent;
   if (oldParent === newParent) return;
+  if (childrenAt(state, newParent).length >= MAX_CHILDREN) {
+    throw new SimRevert("TooManyChildren", { parent: newParent });
+  }
 
   removeFromParent(state, oldParent, account);
   state.nodes[account]!.parent = newParent;

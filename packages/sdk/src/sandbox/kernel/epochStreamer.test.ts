@@ -168,4 +168,18 @@ describe("kernel EpochStreamer", () => {
     sim.send(MANAGER, (ctx) => epochStreamer.setGrant(ctx, WORKER, 1n));
     assert.deepEqual(sim.lastEvent("OperatorUpdated").args, { operator: MANAGER });
   });
+
+  it("refuses a 101st payroll recipient, but still updates or clears an existing one", () => {
+    const sim = funded();
+    const node = (i: number) => `0x${(0x2000 + i).toString(16).padStart(40, "0")}` as Address;
+    for (let i = 0; i < 100; i++) {
+      sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, node(i), 1n));
+    }
+    sim.reverts("TooManyRecipients", ROOT, (ctx) => epochStreamer.setGrant(ctx, A, 1n));
+    sim.reverts("TooManyRecipients", ROOT, (ctx) => epochStreamer.setGrants(ctx, [A], [1n]));
+    // A current recipient is not a new one, and clearing frees a slot.
+    sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, node(0), 9n));
+    sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, node(1), 0n));
+    sim.send(ROOT, (ctx) => epochStreamer.setGrant(ctx, A, 1n));
+  });
 });
