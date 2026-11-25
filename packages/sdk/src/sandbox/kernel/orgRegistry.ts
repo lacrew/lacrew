@@ -11,6 +11,9 @@ const CONTRACT = "OrgRegistry";
 /** `OrgRegistry.MAX_CHILDREN`: the per-node fan-out cap every path that adds a report respects. */
 const MAX_CHILDREN = 100;
 
+/** `OrgRegistry.MAX_DEPTH`: the tree depth cap below root; it bounds the ancestor walks. */
+const MAX_DEPTH = 32;
+
 /** `IOrgRegistry.NodeKind`, by ABI value. */
 export const NodeKind = { HumanRoot: 0, ManagerAgent: 1, WorkerAgent: 2 } as const;
 
@@ -175,6 +178,7 @@ export function addNode(ctx: Ctx, account_: Address, kind: number, parent_: Addr
   if (childrenAt(state, parent).length >= MAX_CHILDREN) {
     throw new SimRevert("TooManyChildren", { parent });
   }
+  if (depthOf(state, parent) >= MAX_DEPTH) throw new SimRevert("MaxDepthExceeded", { account });
 
   bumpGeneration(state, account);
   state.nodes[account] = { account, kind, parent, active: true };
@@ -255,14 +259,29 @@ export function reparent(ctx: Ctx, account_: Address, newParent_: Address): void
   });
 }
 
-/** True if `maybeAncestor` is on the path from `node` up to root. */
+/**
+ * True if `maybeAncestor` is on the path from `node` up to root. The walk is capped at
+ * MAX_DEPTH hops; a deeper chain reverts with the starting `node`.
+ */
 function isAncestor(state: OrgRegistryState, maybeAncestor: Address, node: Address): boolean {
   let cursor = node;
-  while (cursor !== ZERO_ADDRESS) {
+  for (let i = 0; cursor !== ZERO_ADDRESS; i++) {
     if (cursor === maybeAncestor) return true;
+    if (i > MAX_DEPTH) throw new SimRevert("MaxDepthExceeded", { account: node });
     cursor = nodeAt(state, cursor).parent;
   }
   return false;
+}
+
+/** Hops from `node` to root (root = 0), reverting past MAX_DEPTH. */
+function depthOf(state: OrgRegistryState, node: Address): number {
+  let d = 0;
+  let cursor = nodeAt(state, node).parent;
+  while (cursor !== ZERO_ADDRESS) {
+    if (++d > MAX_DEPTH) throw new SimRevert("MaxDepthExceeded", { account: node });
+    cursor = nodeAt(state, cursor).parent;
+  }
+  return d;
 }
 
 /** Swap-and-pop, so sibling order matches the contract's after a removal. */
