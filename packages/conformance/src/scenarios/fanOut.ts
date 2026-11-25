@@ -94,8 +94,9 @@ export const fanOutScenarios: Scenario[] = [
     b.call("root", "@registry", "addNode", ["target", KIND.worker, seat(0x3000, MAX_DEPTH - 1)]);
   }),
 
-  scenario("reparent can pass the depth cap, and the walks over it then refuse", (b) => {
-    for (let i = 1; i <= MAX_DEPTH; i++) {
+  scenario("reparent refuses a move that leaves any seat of the subtree past depth 32", (b) => {
+    // seat(1) .. seat(30): a chain whose last seat sits at depth 30.
+    for (let i = 1; i <= MAX_DEPTH - 2; i++) {
       b.call("root", "@registry", "addNode", [
         seat(0x3000, i),
         KIND.manager,
@@ -105,17 +106,21 @@ export const fanOutScenarios: Scenario[] = [
     b.call("root", "@registry", "addNode", ["manager", KIND.manager, "root"]);
     b.call("root", "@registry", "addNode", ["manager2", KIND.manager, "manager"]);
     b.call("root", "@registry", "addNode", ["worker", KIND.worker, "manager2"]);
-    // reparent checks no depth: manager lands 33 deep, worker 35.
-    b.call("root", "@registry", "reparent", ["manager", seat(0x3000, MAX_DEPTH)]);
-    // The ancestor walk from worker is longer than MAX_DEPTH.
-    b.reverts("MaxDepthExceeded", "root", "@registry", "reparent", [seat(0x3000, 1), "worker"]);
-    // addNode under a seat already past the cap overruns the depth walk too.
+    // Under seat 30: manager 31, manager2 32, worker 33. One level too deep.
+    b.reverts("MaxDepthExceeded", "root", "@registry", "reparent", [
+      "manager",
+      seat(0x3000, MAX_DEPTH - 2),
+    ]);
+    b.expect({ nodes: { manager: { parent: "root" } } });
+    // One level up the worker lands exactly on 32.
+    b.call("root", "@registry", "reparent", ["manager", seat(0x3000, MAX_DEPTH - 3)]);
+    // addNode agrees: nothing goes below depth 32.
     b.reverts("MaxDepthExceeded", "root", "@registry", "addNode", [
       "target",
       KIND.worker,
-      "manager",
+      "worker",
     ]);
-    b.expect({ nodes: { target: null, manager: { parent: seat(0x3000, MAX_DEPTH) } } });
+    b.expect({ nodes: { target: null, manager: { parent: seat(0x3000, MAX_DEPTH - 3) } } });
   }),
 
   scenario("the payroll takes at most 100 recipients", (b) => {

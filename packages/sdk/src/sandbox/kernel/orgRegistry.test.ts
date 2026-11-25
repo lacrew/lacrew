@@ -272,23 +272,30 @@ describe("kernel OrgRegistry", () => {
       sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, seat(31)));
     });
 
-    it("reparent can build past the cap; walks over it then name the node they started from", () => {
-      const sim = chain(MAX_DEPTH);
-      // A short branch moved under the deepest seat ends up 33..35 deep: reparent checks no depth.
+    it("reparent refuses a move that leaves any seat of the subtree past depth 32", () => {
+      const sim = chain(MAX_DEPTH - 2);
       sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.ManagerAgent, ROOT));
       sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, B, NodeKind.ManagerAgent, A));
       sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, C, NodeKind.ManagerAgent, B));
-      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, A, seat(32)));
-      // The ancestor walk from C is 35 hops: refused, naming C.
-      assert.throws(() => sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(1), C)), {
+      // Under seat(30): A 31, B 32, C 33. Refused, naming the moved account.
+      assert.throws(() => sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, A, seat(30))), {
         errorName: "MaxDepthExceeded",
-        args: { account: C },
+        args: { account: A },
       });
-      // addNode under A (depth 33): `_depth` overruns and names the parent, not the new account.
+      assert.equal(sim.read((ctx) => orgRegistry.getNode(ctx, A)).parent, ROOT);
+      // One level up: C lands exactly on 32.
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, A, seat(29)));
+      // addNode agrees: nothing goes below depth 32.
       assert.throws(
-        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, WORKER, NodeKind.WorkerAgent, A)),
-        { errorName: "MaxDepthExceeded", args: { account: A } },
+        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, WORKER, NodeKind.WorkerAgent, C)),
+        { errorName: "MaxDepthExceeded", args: { account: WORKER } },
       );
+    });
+
+    it("reparent up the tree, or a no-op move, is never refused", () => {
+      const sim = chain(MAX_DEPTH);
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(MAX_DEPTH), seat(MAX_DEPTH - 1)));
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(27), ROOT));
     });
   });
 });
