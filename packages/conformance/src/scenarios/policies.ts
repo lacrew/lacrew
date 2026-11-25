@@ -130,10 +130,12 @@ export const policyScenarios: Scenario[] = [
     b.reverts("NotAuthorized", "stranger", "@whitelist", "setAllowed", ["target", true]);
     b.call("root", "@spendCap", "setGovernor", ["human2"]);
     b.call("root", "@whitelist", "setGovernor", ["human2"]);
-    b.reverts("GovernorAlreadySet", "root", "@spendCap", "setGovernor", ["@gov"]);
-    b.reverts("GovernorAlreadySet", "root", "@whitelist", "setGovernor", ["@gov"]);
-    // The admin keeps its authority alongside the governor's.
-    b.call("root", "@spendCap", "setAgentCap", ["worker", 7n], { events: ["AgentCapSet"] });
+    // Binding the governor dropped the admin: the deployer can no longer rebind it either.
+    b.reverts("NotAuthorized", "root", "@spendCap", "setGovernor", ["@gov"]);
+    b.reverts("NotAuthorized", "root", "@whitelist", "setGovernor", ["@gov"]);
+    // From here on the governor alone administers the modules.
+    b.reverts("NotAuthorized", "root", "@spendCap", "setAgentCap", ["worker", 7n]);
+    b.call("human2", "@spendCap", "setAgentCap", ["worker", 7n], { events: ["AgentCapSet"] });
     b.call("human2", "@spendCap", "setAgentCap", ["manager", 0n]);
     b.call("human2", "@whitelist", "setAllowed", ["target", true], { events: ["TargetAllowed"] });
     b.expect({
@@ -174,6 +176,32 @@ export const policyScenarios: Scenario[] = [
         { agent: "root", target: "target", value: 8n, verdict: "ESCALATE", module: "$cap2" },
         { agent: "worker", target: "target2", value: 0n, verdict: "ALLOW", module: "$wl2" },
         { agent: "worker", target: "target", value: 0n, verdict: "DENY", module: "$wl2" },
+      ],
+    });
+  }),
+
+  scenario("a deployer admin is refused once the governor binds", (b) => {
+    b.crew();
+    b.deploy("stranger", "SpendCapPolicy", "cap3", [7n]);
+    b.deploy("stranger", "WhitelistPolicy", "wl3");
+    // Until the governor binds, the deployer administers its own modules.
+    b.call("stranger", "$cap3", "setAgentCap", ["worker", 9n], { events: ["AgentCapSet"] });
+    b.call("stranger", "$wl3", "setAllowed", ["target", true], { events: ["TargetAllowed"] });
+    b.call("stranger", "$cap3", "setGovernor", ["human2"], { events: ["GovernorUpdated"] });
+    b.call("stranger", "$wl3", "setGovernor", ["human2"], { events: ["GovernorUpdated"] });
+    // Binding dropped the deployer's admin: every mutator, and setGovernor itself, refuses it.
+    b.reverts("NotAuthorized", "stranger", "$cap3", "setAgentCap", ["worker", 1n]);
+    b.reverts("NotAuthorized", "stranger", "$wl3", "setAllowed", ["target", false]);
+    b.reverts("NotAuthorized", "stranger", "$cap3", "setGovernor", ["stranger"]);
+    b.reverts("NotAuthorized", "stranger", "$wl3", "setGovernor", ["stranger"]);
+    // The governor does.
+    b.call("human2", "$cap3", "setAgentCap", ["worker", 3n], { events: ["AgentCapSet"] });
+    b.call("human2", "$wl3", "setAllowed", ["target", false], { events: ["TargetAllowed"] });
+    b.expect({
+      verdicts: [
+        { agent: "worker", target: "target", value: 3n, verdict: "ALLOW", module: "$cap3" },
+        { agent: "worker", target: "target", value: 4n, verdict: "ESCALATE", module: "$cap3" },
+        { agent: "worker", target: "target", value: 0n, verdict: "DENY", module: "$wl3" },
       ],
     });
   }),

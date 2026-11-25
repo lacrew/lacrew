@@ -23,12 +23,20 @@ const CONTRACT = "GovernanceModule";
 
 /** Enums by ABI value. */
 export const Tier = { Low: 0, High: 1 } as const;
-export const ProposalState = { Active: 0, Executed: 1, Vetoed: 2, Defeated: 3 } as const;
+export const ProposalState = {
+  Active: 0,
+  Executed: 1,
+  Vetoed: 2,
+  Defeated: 3,
+  Expired: 4,
+} as const;
 export const SeatRole = { None: 0, Human: 1, Agent: 2 } as const;
 
 export const MIN_VOTING_PERIOD = 3_600n;
 export const MAX_VOTING_PERIOD = 30n * 86_400n;
 export const MAX_TIMELOCK = 30n * 86_400n;
+/** How long a proposal stays executable once voting has closed and its delay has elapsed. */
+export const EXECUTION_WINDOW = 14n * 86_400n;
 
 /** `bytes4(keccak256("setGovernor(address)"))`. */
 export const SET_GOVERNOR_SELECTOR = "0xc42cf535";
@@ -533,6 +541,14 @@ export function execute(ctx: Ctx, proposalId: bigint): void {
   const self = ctx.world.addresses.governanceModule;
   const p = proposalRef(state, proposalId);
   if (p.state !== ProposalState.Active) throw new SimRevert("ProposalNotActive", { proposalId });
+
+  // A stale yes-majority cannot be cashed in: past the window the proposal closes, no revert.
+  const executableUntil = (p.eta > p.deadline ? p.eta : p.deadline) + EXECUTION_WINDOW;
+  if (ctx.now > executableUntil) {
+    p.state = ProposalState.Expired;
+    emit(ctx, self, CONTRACT, "ProposalExpired", { proposalId });
+    return;
+  }
 
   const high = p.tier === Tier.High;
   if (high) {

@@ -53,14 +53,37 @@ export const governanceScenarios: Scenario[] = [
 
     b.reverts("ProposalNotActive", "root", "@gov", "execute", [BigInt(p)]);
     b.reverts("ProposalNotActive", "root", "@gov", "vote", [BigInt(p), true]);
-    // An id nobody proposed: no votes to count, and a deadline long past.
-    b.reverts("QuorumNotMet", "root", "@gov", "execute", [99n]);
+    // An id nobody proposed has a deadline of zero, so its execution window is long past:
+    // it closes as expired instead of counting votes.
+    b.execute("root", 99, { events: ["ProposalExpired"] });
+    b.expect({ proposals: { 99: { state: "expired" } } });
     b.reverts("ProposalNotActive", "root", "@gov", "vote", [99n, true]);
     // A veto has to name a proposal that exists: an id not yet created is refused.
     b.reverts("ProposalNotFound", "root", "@gov", "veto", [BigInt(p + 1)]);
     b.reverts("ProposalNotFound", "root", "@gov", "veto", [0n]);
     const next = b.propose("root", LOW, hire("worker", KIND.worker, "manager"));
     b.expect({ proposals: { [next]: { state: "active" } } });
+  }),
+
+  governed("a passed proposal nobody executes expires after the execution window", (b) => {
+    const stale = b.propose("root", LOW, hire("manager", KIND.manager, "root"));
+    b.vote("root", stale);
+    const fresh = b.propose("root", LOW, hire("worker", KIND.worker, "root"));
+    b.vote("root", fresh);
+    // Just inside the window (the later of the 3-day deadline and the delay, plus 14 days) it still runs.
+    b.warp(17 * DAY - 10);
+    b.execute("stranger", fresh, { events: ["NodeAdded", "ProposalExecuted"] });
+    // One second past it the proposal closes: no revert, no action, a yes-majority wasted.
+    b.warp(11);
+    b.execute("stranger", stale, { events: ["ProposalExpired"] });
+    b.expect({
+      proposals: { [stale]: { state: "expired" }, [fresh]: { state: "executed" } },
+      nodes: { worker: { parent: "root", kind: "worker_agent" } },
+    });
+    // Expired is final: it cannot be voted on, vetoed or executed.
+    b.reverts("ProposalNotActive", "root", "@gov", "execute", [BigInt(stale)]);
+    b.reverts("ProposalNotActive", "root", "@gov", "vote", [BigInt(stale), true]);
+    b.reverts("ProposalNotActive", "root", "@gov", "veto", [BigInt(stale)]);
   }),
 
   governed("the governance actions an org is run by", (b) => {

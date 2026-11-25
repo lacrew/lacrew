@@ -49,9 +49,10 @@ describe("fuzzing the simulator", () => {
           }
         }
 
-        // The run must have gone somewhere: calls that landed, and a spread of refusals.
+        // The run must have gone somewhere: calls that landed, and a spread of refusals. A governed
+        // org refuses the deployer's policy mutators too, so a sixth of the steps is the floor.
         const landed = outcomes.get("ok") ?? 0;
-        assert.ok(landed > STEPS / 5, `${label}: only ${landed} calls landed`);
+        assert.ok(landed > STEPS / 6, `${label}: only ${landed} calls landed`);
         assert.ok(outcomes.size > 10, `${label}: only ${outcomes.size} distinct outcomes`);
         assert.equal(outcomes.has("NotSimulated"), false, `${label}: hit an unmodelled function`);
       });

@@ -47,19 +47,20 @@ describe("kernel SpendCapPolicy", () => {
     assert.deepEqual(sim.lastEvent("AgentCapSet").args, { agent: WORKER, cap: MAX_UINT256 });
   });
 
-  it("is mutable by the admin and the governor, and the governor binds once", () => {
+  it("is mutable by the admin until the governor binds, then by the governor alone", () => {
     const sim = new Sim(blankWorld());
     const cap = deploy(sim, (ctx, a) => policies.deploySpendCapPolicy(ctx, a, 50n));
     sim.reverts("NotAuthorized", STRANGER, (ctx) => policies.setAgentCap(ctx, cap, WORKER, 1n));
     sim.reverts("NotAuthorized", STRANGER, (ctx) => policies.setGovernor(ctx, cap, GOVERNOR));
     sim.reverts("ZeroAddress", ADMIN, (ctx) => policies.setGovernor(ctx, cap, ZERO_ADDRESS));
     sim.send(ADMIN, (ctx) => policies.setGovernor(ctx, cap, GOVERNOR));
-    sim.reverts("GovernorAlreadySet", ADMIN, (ctx) => policies.setGovernor(ctx, cap, ROOT));
+    // Binding drops the admin: the deployer can neither rebind nor mutate.
+    sim.reverts("NotAuthorized", ADMIN, (ctx) => policies.setGovernor(ctx, cap, ROOT));
+    sim.reverts("NotAuthorized", ADMIN, (ctx) => policies.setAgentCap(ctx, cap, WORKER, 8n));
     sim.send(GOVERNOR, (ctx) => policies.setAgentCap(ctx, cap, WORKER, 7n));
-    sim.send(ADMIN, (ctx) => policies.setAgentCap(ctx, cap, WORKER, 8n));
     assert.equal(
       sim.read((ctx) => policies.capOf(ctx, cap, WORKER)),
-      8n,
+      7n,
     );
   });
 });
@@ -76,12 +77,13 @@ describe("kernel WhitelistPolicy", () => {
     assert.equal(check(sim, wl), Verdict.DENY);
   });
 
-  it("is mutable by the admin and the governor only", () => {
+  it("is mutable by the admin until the governor binds, then by the governor alone", () => {
     const sim = new Sim(blankWorld());
     const wl = deploy(sim, (ctx, a) => policies.deployWhitelistPolicy(ctx, a));
     sim.reverts("NotAuthorized", STRANGER, (ctx) => policies.setAllowed(ctx, wl, TARGET, true));
     sim.send(ADMIN, (ctx) => policies.setGovernor(ctx, wl, GOVERNOR));
-    sim.reverts("GovernorAlreadySet", ADMIN, (ctx) => policies.setGovernor(ctx, wl, ROOT));
+    sim.reverts("NotAuthorized", ADMIN, (ctx) => policies.setGovernor(ctx, wl, ROOT));
+    sim.reverts("NotAuthorized", ADMIN, (ctx) => policies.setAllowed(ctx, wl, TARGET, true));
     sim.send(GOVERNOR, (ctx) => policies.setAllowed(ctx, wl, TARGET, true));
     assert.equal(check(sim, wl), Verdict.ALLOW);
   });
