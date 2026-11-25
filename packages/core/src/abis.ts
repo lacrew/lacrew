@@ -3499,6 +3499,17 @@ export const governanceModuleAbi = [
   },
   {
     "type": "error",
+    "name": "OutgoingRootVetoIgnored",
+    "inputs": [
+      {
+        "name": "proposalId",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "Outvoted",
     "inputs": [
       {

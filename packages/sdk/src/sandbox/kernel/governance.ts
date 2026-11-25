@@ -42,6 +42,8 @@ export const EXECUTION_WINDOW = 14n * 86_400n;
 export const SET_GOVERNOR_SELECTOR = "0xc42cf535";
 /** `bytes4(keccak256("rotateRoot(address)"))`. */
 export const ROTATE_ROOT_SELECTOR = "0x611ab368";
+/** `bytes4(keccak256("rotateRoot(address,address[])"))`: the module's own rotation. */
+export const ROTATE_ROOT_ROOTED_SELECTOR = "0x86c505da";
 /** `bytes4(keccak256("setIssuer(address)"))`. */
 export const SET_ISSUER_SELECTOR = "0x55cc4e57";
 /** `bytes4(keccak256("withdraw(address,uint256)"))`: Treasury's outflow, always High tier. */
@@ -78,6 +80,12 @@ export interface GovernanceState {
    */
   noHumanVotes?: Record<string, bigint>;
   hasVoted: Record<string, Record<Address, boolean>>;
+  /**
+   * Human seats that voted yes, by proposal id, in vote order: what `veto` asks
+   * when the outgoing root tries to veto its own replacement. Optional because a
+   * world saved before it existed has none.
+   */
+  yesHumanVoters?: Record<string, Address[]>;
   votingPower: Record<Address, bigint>;
   seatRole: Record<Address, number>;
   totalVotingPower: bigint;
@@ -108,6 +116,7 @@ export function blankGovernance(): GovernanceState {
     proposals: {},
     noHumanVotes: {},
     hasVoted: {},
+    yesHumanVoters: {},
     votingPower: {},
     seatRole: {},
     totalVotingPower: 0n,
@@ -504,6 +513,7 @@ export function vote(ctx: Ctx, proposalId: bigint, support: boolean): void {
     p.yesVotes = checkedAdd(p.yesVotes, weight);
     if (roleOf(state, ctx.sender) === SeatRole.Human) {
       p.yesHumanVotes = checkedAdd(p.yesHumanVotes, weight);
+      ((state.yesHumanVoters ??= {})[proposalId.toString()] ??= []).push(ctx.sender);
     }
   } else {
     p.noVotes = checkedAdd(p.noVotes, weight);
@@ -529,11 +539,39 @@ export function veto(ctx: Ctx, proposalId: bigint): void {
   const p = state.proposals[proposalId.toString()];
   if (!p || p.target === ZERO_ADDRESS) throw new SimRevert("ProposalNotFound", { proposalId });
   if (p.state !== ProposalState.Active) throw new SimRevert("ProposalNotActive", { proposalId });
+  if (
+    ctx.sender === state.humanRoot &&
+    rotatesRootAway(state, p) &&
+    otherHumanVotedYes(state, proposalId)
+  ) {
+    throw new SimRevert("OutgoingRootVetoIgnored", { proposalId });
+  }
   p.state = ProposalState.Vetoed;
   emit(ctx, ctx.world.addresses.governanceModule, CONTRACT, "ProposalVetoed", {
     proposalId,
     vetoer: ctx.sender,
   });
+}
+
+/** True when the proposal calls `rotateRoot` naming a root other than the current one. */
+function rotatesRootAway(state: GovernanceState, p: ProposalRecord): boolean {
+  // A 4-byte selector plus one address word.
+  if (byteLength(p.data) < 36) return false;
+  const selector = p.data.slice(0, 10).toLowerCase();
+  if (selector !== ROTATE_ROOT_SELECTOR && selector !== ROTATE_ROOT_ROOTED_SELECTOR) return false;
+  // The word's low 20 bytes: the contract truncates it to an address.
+  return addr(`0x${p.data.slice(2 + 8 + 24, 2 + 8 + 64)}`) !== state.humanRoot;
+}
+
+/**
+ * Whether a current Human seat other than the root has voted yes. A voter
+ * unseated since still sits in the list, so the seat is read at veto time.
+ */
+function otherHumanVotedYes(state: GovernanceState, proposalId: bigint): boolean {
+  const voters = state.yesHumanVoters?.[proposalId.toString()] ?? [];
+  return voters.some(
+    (v) => v !== state.humanRoot && roleOf(state, v) === SeatRole.Human && powerOf(state, v) > 0n,
+  );
 }
 
 export function execute(ctx: Ctx, proposalId: bigint): void {

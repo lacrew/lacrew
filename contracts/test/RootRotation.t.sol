@@ -239,6 +239,24 @@ contract RootRotationTest is SessionWiring {
         gov.veto(id);
     }
 
+    function test_outgoingRootVetoStandsOnceTheYesVoterIsUnseated() public {
+        _seatPartner();
+        vm.prank(partner);
+        uint256 id = gov.propose(
+            GovernanceModule.Tier.High, address(gov), abi.encodeCall(GovernanceModule.rotateRoot, (fresh, _rooted()))
+        );
+        vm.prank(partner);
+        gov.vote(id, true);
+        vm.prank(root);
+        vm.expectRevert(abi.encodeWithSelector(GovernanceModule.OutgoingRootVetoIgnored.selector, id));
+        gov.veto(id);
+        // the partner's seat is revoked: its recorded yes no longer counts
+        _pass(address(gov), abi.encodeCall(GovernanceModule.removeHuman, (partner)), _voters(root));
+        assertEq(gov.votingPower(partner), 0);
+        vm.prank(root);
+        gov.veto(id);
+    }
+
     function test_outgoingRootVetoStandsUntilAnotherHumanVotesYes() public {
         _seatPartner();
         vm.prank(partner);

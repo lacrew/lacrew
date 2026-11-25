@@ -4,9 +4,19 @@
  * is bound and only by a High-tier proposal after.
  */
 
-import { HIGH, KIND, LOW, SEAT, governed, scenario, type Scenario } from "../scenario.js";
+import {
+  HIGH,
+  KIND,
+  LOW,
+  SEAT,
+  governed,
+  scenario,
+  type CallSpec,
+  type Scenario,
+} from "../scenario.js";
 
 const ROOTED = ["@registry", "@sessions"];
+const ROTATION: CallSpec = { to: "@gov", fn: "rotateRoot", args: ["stranger", ROOTED] };
 
 export const rootRotationScenarios: Scenario[] = [
   scenario("root rotation by key, before governance is bound", (b) => {
@@ -146,4 +156,43 @@ export const rootRotationScenarios: Scenario[] = [
     },
     { rootPower: 0n },
   ),
+
+  governed(
+    "the outgoing root cannot veto its own replacement once another human voted yes",
+    (b) => {
+      b.pass({ to: "@registry", fn: "addNode", args: ["human2", KIND.human, "root"] }, HIGH);
+      b.pass({ to: "@gov", fn: "admitHuman", args: ["human2", 2n] }, HIGH);
+
+      // Before the partner's yes, the root's veto stands.
+      const early = b.propose("human2", HIGH, ROTATION);
+      b.veto("root", early, { events: ["ProposalVetoed"] });
+      b.expect({ proposals: { [early]: { state: "vetoed" } } });
+
+      // The root's own yes is not another human's.
+      const own = b.propose("human2", HIGH, ROTATION);
+      b.vote("root", own);
+      b.veto("root", own, { events: ["ProposalVetoed"] });
+
+      // Once the other human votes yes, the root's veto is refused; theirs still works.
+      const id = b.propose("human2", HIGH, ROTATION);
+      b.vote("human2", id);
+      b.reverts("OutgoingRootVetoIgnored", "root", "@gov", "veto", [BigInt(id)]);
+      b.expect({ proposals: { [id]: { state: "active" } } });
+
+      // The root's veto on any other proposal is untouched.
+      const other = b.propose("human2", HIGH, { to: "@gov", fn: "setQuorumHumanYes", args: [1n] });
+      b.vote("human2", other);
+      b.veto("root", other, { events: ["ProposalVetoed"] });
+
+      b.veto("human2", id, { events: ["ProposalVetoed"] });
+      b.expect({ proposals: { [id]: { state: "vetoed" } } });
+    },
+  ),
+
+  governed("a sole human root keeps its veto on its own rotation", (b) => {
+    const id = b.propose("root", HIGH, ROTATION);
+    b.vote("root", id);
+    b.veto("root", id, { events: ["ProposalVetoed"] });
+    b.expect({ proposals: { [id]: { state: "vetoed" } } });
+  }),
 ];

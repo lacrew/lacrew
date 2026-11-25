@@ -463,6 +463,96 @@ describe("kernel GovernanceModule: proposals", () => {
     sim.reverts("ProposalNotActive", ROOT, (ctx) => governance.vote(ctx, id, true));
   });
 
+  describe("the outgoing root's veto on its own rotation", () => {
+    const word = (a: Address) => a.slice(2).padStart(64, "0");
+    const rotation = (to: Address, selector: Hex = governance.ROTATE_ROOT_ROOTED_SELECTOR): Hex =>
+      `${selector}${word(to)}` as Hex;
+    const rotate = (sim: Sim, from: Address = ROOT) =>
+      high(sim, self(sim), rotation(STRANGER), from);
+    const veto = (id: bigint) => (ctx: Ctx) => governance.veto(ctx, id);
+
+    it("is refused once another human voted yes, while any other human's veto still works", () => {
+      const sim = module();
+      admitSecondHuman(sim);
+      const id = rotate(sim, SECOND_HUMAN);
+      vote(sim, SECOND_HUMAN, id);
+      sim.reverts("OutgoingRootVetoIgnored", ROOT, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Active);
+      sim.send(SECOND_HUMAN, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Vetoed);
+    });
+
+    it("applies to the single-address rotateRoot selector too", () => {
+      const sim = module();
+      admitSecondHuman(sim);
+      const id = high(sim, self(sim), rotation(STRANGER, governance.ROTATE_ROOT_SELECTOR));
+      vote(sim, SECOND_HUMAN, id);
+      sim.reverts("OutgoingRootVetoIgnored", ROOT, veto(id));
+    });
+
+    it("stands until another human votes yes; the root's own yes does not count", () => {
+      const sim = module();
+      admitSecondHuman(sim);
+      const id = rotate(sim);
+      vote(sim, ROOT, id);
+      sim.send(ROOT, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Vetoed);
+    });
+
+    it("stands when the other human voted no", () => {
+      const sim = module();
+      admitSecondHuman(sim);
+      const id = rotate(sim);
+      vote(sim, SECOND_HUMAN, id, false);
+      sim.send(ROOT, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Vetoed);
+    });
+
+    it("a sole human root keeps its veto", () => {
+      const sim = module();
+      const id = rotate(sim);
+      vote(sim, ROOT, id);
+      sim.send(ROOT, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Vetoed);
+    });
+
+    it("an agent's yes does not count", () => {
+      const sim = module();
+      agentSeat(sim, MANAGER, 1n);
+      const id = rotate(sim);
+      vote(sim, MANAGER, id);
+      sim.send(ROOT, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Vetoed);
+    });
+
+    it("a yes from a human unseated since no longer counts", () => {
+      const sim = module();
+      admitSecondHuman(sim);
+      const id = rotate(sim);
+      vote(sim, SECOND_HUMAN, id);
+      sim.reverts("OutgoingRootVetoIgnored", ROOT, veto(id));
+      const out = high(sim, self(sim), "0xaa02");
+      vote(sim, ROOT, out);
+      sim.warp(VOTING_PERIOD + TIMELOCK + 1n);
+      sim.send(ROOT, execute(out));
+      assert.equal(sim.world.governance.seatRole[SECOND_HUMAN], SeatRole.None);
+      sim.send(ROOT, veto(id));
+      assert.equal(proposal(sim, id).state, ProposalState.Vetoed);
+    });
+
+    it("leaves the root's veto on other proposals, and on a rotation to itself", () => {
+      const sim = module();
+      admitSecondHuman(sim);
+      const other = high(sim, TARGET, "0x", SECOND_HUMAN);
+      vote(sim, SECOND_HUMAN, other);
+      sim.send(ROOT, veto(other));
+      const same = high(sim, self(sim), rotation(ROOT), SECOND_HUMAN);
+      vote(sim, SECOND_HUMAN, same);
+      sim.send(ROOT, veto(same));
+      assert.equal(proposal(sim, same).state, ProposalState.Vetoed);
+    });
+  });
+
   it("refuses to veto an id no proposal holds yet", () => {
     const sim = module();
     sim.reverts("ProposalNotFound", ROOT, (ctx) => governance.veto(ctx, 1n));
