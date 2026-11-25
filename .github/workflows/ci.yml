@@ -155,7 +155,7 @@ jobs:
       - uses: supabase/setup-cli@v3
         with:
           # Pinned; config.toml was migrated to the v3 keys ([inbucket] -> [local_smtp]).
-          version: 3.3.0
+          version: 3.4.0
       # Postgres only — no auth/storage/studio containers. `db start` blocks
       # until the database is healthy, so the first query cannot race startup.
       - run: supabase db start
