@@ -26,6 +26,7 @@ contract PerNodeRateRecorderTest is Test {
     EscalationRouter internal router;
     PolicyStack internal defaultStack;
     PolicyStack internal customStack;
+    WhitelistPolicy internal whitelist;
 
     function setUp() public {
         registry = new OrgRegistry(root);
@@ -34,7 +35,7 @@ contract PerNodeRateRecorderTest is Test {
         vm.prank(root);
         registry.addNode(worker, IOrgRegistry.NodeKind.WorkerAgent, manager);
 
-        WhitelistPolicy whitelist = new WhitelistPolicy();
+        whitelist = new WhitelistPolicy();
         whitelist.setAllowed(goodTarget, true);
         SpendCapPolicy spendCap = new SpendCapPolicy(100 ether);
 
@@ -118,5 +119,40 @@ contract PerNodeRateRecorderTest is Test {
     function test_zeroNodeReverts() public {
         vm.expectRevert(EscalationRouter.ZeroAddress.selector);
         router.setNodeRateRecorder(address(0), address(customRate));
+    }
+
+    /// Another node's bound recorder trusts the router as msg.sender. A policy that allows the
+    /// target must not let an agent push that node into ESCALATE with record(victim).
+    function test_otherNodesBoundRecorderIsAProtectedTarget() public {
+        whitelist.setAllowed(address(customRate), true);
+        bytes memory poke = abi.encodeCall(RateLimitPolicy.record, (worker));
+
+        vm.expectRevert(abi.encodeWithSelector(EscalationRouter.ProtectedTarget.selector, address(customRate)));
+        router.propose(manager, address(customRate), 0, poke);
+
+        // Nothing was counted against the victim.
+        (, uint32 count) = customRate.windows(worker);
+        assertEq(count, 0);
+        (, Verdict v) = router.propose(worker, goodTarget, 1 ether, "");
+        assertEq(uint8(v), uint8(Verdict.ALLOW));
+    }
+
+    function test_protectionFollowsRebindingAndSharedRecorders() public {
+        assertTrue(router.isBoundRecorder(address(customRate)));
+        assertTrue(router.isBoundRecorder(address(globalRate)));
+
+        // Shared by a second node: clearing one binding keeps it protected.
+        router.setNodeRateRecorder(manager, address(customRate));
+        router.setNodeRateRecorder(worker, address(0));
+        assertTrue(router.isBoundRecorder(address(customRate)));
+
+        // Last binding gone: no longer protected.
+        router.setNodeRateRecorder(manager, address(0));
+        assertFalse(router.isBoundRecorder(address(customRate)));
+
+        // Rebinding the global recorder moves the protection.
+        router.setRateRecorder(address(customRate));
+        assertFalse(router.isBoundRecorder(address(globalRate)));
+        assertTrue(router.isBoundRecorder(address(customRate)));
     }
 }
