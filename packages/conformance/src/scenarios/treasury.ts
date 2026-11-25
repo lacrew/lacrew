@@ -100,7 +100,7 @@ export const treasuryScenarios: Scenario[] = [
     for (const fn of ["runNextEpoch"] as const) {
       b.reverts("NotOperator", "stranger", "@streamer", fn);
     }
-    b.reverts("NotOperator", "stranger", "@streamer", "setOperator", ["stranger"]);
+    b.reverts("NotAuthorized", "stranger", "@streamer", "setOperator", ["stranger"]);
     b.reverts("NotOperator", "stranger", "@streamer", "setGovernor", ["@gov"]);
     b.reverts("ZeroAddress", "root", "@streamer", "setOperator", ["zero"]);
     b.reverts("ZeroAddress", "root", "@streamer", "setGovernor", ["zero"]);
@@ -114,6 +114,12 @@ export const treasuryScenarios: Scenario[] = [
     b.call("human2", "@streamer", "setGrant", ["worker", 3n]);
     b.reverts("NotOperator", "human2", "@streamer", "runNextEpoch");
     b.expect({ grants: { manager: 10n, worker2: 20n, worker: 3n } });
+    // The governor can also replace the operator (a compromised key is rotated out
+    // by governance); the replaced operator is then refused.
+    b.reverts("ZeroAddress", "human2", "@streamer", "setOperator", ["zero"]);
+    b.call("human2", "@streamer", "setOperator", ["manager2"], { events: ["OperatorUpdated"] });
+    b.reverts("NotAuthorized", "operator2", "@streamer", "setOperator", ["operator2"]);
+    b.reverts("NotOperator", "operator2", "@streamer", "runNextEpoch");
   }),
 
   scenario("the treasury's authority and both ways it pays out", (b) => {

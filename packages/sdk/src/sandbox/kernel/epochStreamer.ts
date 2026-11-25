@@ -65,10 +65,13 @@ export function deploy(
 }
 
 export function setOperator(ctx: Ctx, operator_: Address): void {
-  onlyOperator(ctx);
+  const state = ctx.world.epochStreamer;
+  if (ctx.sender !== state.operator && ctx.sender !== state.governor) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
   const operator = addr(operator_);
   if (operator === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
-  ctx.world.epochStreamer.operator = operator;
+  state.operator = operator;
   emit(ctx, ctx.world.addresses.epochStreamer, CONTRACT, "OperatorUpdated", { operator });
 }
 

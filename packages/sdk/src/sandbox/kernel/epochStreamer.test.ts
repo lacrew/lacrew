@@ -160,7 +160,7 @@ describe("kernel EpochStreamer", () => {
 
   it("hands the operator role on, to a non-zero address", () => {
     const sim = funded();
-    sim.reverts("NotOperator", STRANGER, (ctx) => epochStreamer.setOperator(ctx, STRANGER));
+    sim.reverts("NotAuthorized", STRANGER, (ctx) => epochStreamer.setOperator(ctx, STRANGER));
     sim.reverts("ZeroAddress", ROOT, (ctx) => epochStreamer.setOperator(ctx, ZERO_ADDRESS));
     sim.send(ROOT, (ctx) => epochStreamer.setOperator(ctx, MANAGER));
     sim.reverts("NotAuthorized", ROOT, (ctx) => epochStreamer.setGrant(ctx, WORKER, 1n));
