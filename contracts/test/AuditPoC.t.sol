@@ -223,6 +223,7 @@ contract AuditPoC is Test {
         r.setNodeRateRecorder(agentB, address(rlB));
         wl.setAllowed(address(rlB), true);
         vm.prank(agentA);
+        vm.expectRevert(abi.encodeWithSelector(EscalationRouter.ProtectedTarget.selector, address(rlB)));
         r.propose(agentA, address(rlB), 0, abi.encodeCall(RateLimitPolicy.record, (agentB)));
         (, uint32 count) = rlB.windows(agentB);
         assertEq(count, 0, "agent A burned agent B's rate window");
