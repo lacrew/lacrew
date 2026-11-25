@@ -49,6 +49,18 @@ interface IRootRotatable {
 ///      too, alongside governor transfers. The outgoing root cannot veto its own
 ///      replacement once another Human seat has voted yes on it; an org whose only
 ///      Human seat is the root keeps that veto.
+///
+///      **Seat snapshots.** A proposal is decided on the electorate that existed when it
+///      was made. Every seat change is checkpointed under a monotonically increasing
+///      `seatEpoch`, and `propose` records that epoch together with the total and human
+///      weight, the tier's effective quorum and the unanimity switch
+///      (`proposalSnapshots`). `vote` weighs a ballot by the voter's seat at that epoch,
+///      and `execute` gates on the recorded bars. A seat granted or re-weighted after
+///      the proposal neither votes on it nor moves its quorum or unanimity bar; a seat
+///      revoked after it keeps its snapshot weight on it — already cast or cast later —
+///      so no seat change can move the tally or the bar of a proposal already open.
+///      The veto is not snapshotted: it is the live safety valve, held by whoever is a
+///      funded Human seat when it is used.
 contract GovernanceModule {
     enum Tier {
         Low,
@@ -84,6 +96,27 @@ contract GovernanceModule {
         ProposalState state;
     }
 
+    /// @notice What a proposal is decided on, frozen when it is created.
+    /// @param seatEpoch The seat epoch votes are weighed at (`seatAt`).
+    /// @param unanimityFastPath Whether unanimous human yes skips the proposal's delay.
+    /// @param quorum The tier's effective quorum: yes-weight for Low, human yes-weight for High.
+    /// @param totalVotingPower All seat weight at `seatEpoch`.
+    /// @param totalHumanVotingPower Human seat weight at `seatEpoch`; the unanimity bar.
+    struct ProposalSnapshot {
+        uint64 seatEpoch;
+        bool unanimityFastPath;
+        uint256 quorum;
+        uint256 totalVotingPower;
+        uint256 totalHumanVotingPower;
+    }
+
+    /// @dev A seat's weight and role from `epoch` until its next checkpoint.
+    struct SeatCheckpoint {
+        uint64 epoch;
+        SeatRole role;
+        uint256 power;
+    }
+
     /// @notice The org's root key. Changed only by `rotateRoot`.
     address public humanRoot;
 
@@ -97,7 +130,15 @@ contract GovernanceModule {
     /// @dev Human seats that voted yes on a proposal, in vote order. Lets `veto` ask
     ///      whether a Human seat other than the outgoing root backs a root rotation.
     mapping(uint256 => address[]) private yesHumanVoters;
-    /// @notice Role-weighted seat power. Zero means the address cannot vote.
+    /// @notice Per-proposal snapshot of the electorate and the bars it must clear.
+    mapping(uint256 => ProposalSnapshot) public proposalSnapshots;
+    /// @notice Counts seat changes. Each `_setSeat` checkpoints the seat under the next
+    ///         epoch, so a proposal's recorded epoch excludes every change made after it.
+    uint64 public seatEpoch;
+    /// @dev Seat history, ascending by epoch. One push per seat change.
+    mapping(address => SeatCheckpoint[]) private _seatCheckpoints;
+    /// @notice Role-weighted seat power now. Zero means the address cannot propose,
+    ///         veto, or vote on a proposal created from here on.
     mapping(address => uint256) public votingPower;
     /// @notice Human vs agent seat. Agent yes-weight counts for low tier only.
     mapping(address => SeatRole) public seatRole;
@@ -223,6 +264,8 @@ contract GovernanceModule {
     ///      has voted yes on it.
     error OutgoingRootVetoIgnored(uint256 proposalId);
     error InvalidLowTierDelay(uint256 lowTierDelay);
+    /// @dev The voter holds a seat now but held none when the proposal was created.
+    error NotSeatedAtProposal(uint256 proposalId, address voter);
 
     /// @dev Root acts directly; the module itself qualifies so an executed High-tier
     ///      proposal targeting this contract can retune parameters through governance.
@@ -253,14 +296,7 @@ contract GovernanceModule {
         humanRoot = humanRoot_;
         lowTierSelector[ADD_NODE_SELECTOR] = true;
         emit LowTierSelectorUpdated(ADD_NODE_SELECTOR, true);
-        if (rootPower_ > 0) {
-            votingPower[humanRoot_] = rootPower_;
-            seatRole[humanRoot_] = SeatRole.Human;
-            totalVotingPower = rootPower_;
-            totalHumanVotingPower = rootPower_;
-            humanSeatCount = 1;
-            emit VotingPowerUpdated(humanRoot_, rootPower_, SeatRole.Human);
-        }
+        if (rootPower_ > 0) _setSeat(humanRoot_, rootPower_, SeatRole.Human);
     }
 
     /// @notice Configure a seat's voting weight and role. Pass power 0 to revoke.
@@ -333,7 +369,35 @@ contract GovernanceModule {
         if (role == SeatRole.Human) totalHumanVotingPower += power;
         votingPower[voter] = power;
         seatRole[voter] = role;
+        uint64 epoch = ++seatEpoch;
+        _seatCheckpoints[voter].push(SeatCheckpoint({epoch: epoch, role: role, power: power}));
         emit VotingPowerUpdated(voter, power, role);
+    }
+
+    /// @notice A seat's weight and role as of `epoch` (the latest checkpoint at or
+    ///         before it). An address never seated by then reads as (0, None).
+    /// @dev Checks the newest checkpoint first — the common case, a seat unchanged
+    ///      since the proposal — then binary-searches, so the cost grows with the log
+    ///      of one seat's own history and never with the number of seats.
+    function seatAt(address voter, uint256 epoch)
+        public
+        view
+        returns (uint256 power, SeatRole role)
+    {
+        SeatCheckpoint[] storage cps = _seatCheckpoints[voter];
+        uint256 hi = cps.length;
+        if (hi == 0) return (0, SeatRole.None);
+        SeatCheckpoint storage last = cps[hi - 1];
+        if (last.epoch <= epoch) return (last.power, last.role);
+        uint256 lo = 0;
+        while (lo < hi) {
+            uint256 mid = (lo + hi) / 2;
+            if (cps[mid].epoch > epoch) hi = mid;
+            else lo = mid + 1;
+        }
+        if (lo == 0) return (0, SeatRole.None);
+        SeatCheckpoint storage cp = cps[lo - 1];
+        return (cp.power, cp.role);
     }
 
     /// @notice Rotate the org's root key to `newRoot` here and on each of `rooted`
@@ -420,15 +484,17 @@ contract GovernanceModule {
         emit LowTierSelectorUpdated(selector, allowed);
     }
 
-    /// @notice Low-tier quorum actually enforced: never more yes-weight than the
-    ///         seated electorate holds, so quorum cannot demand absent voters.
+    /// @notice Low-tier quorum a proposal created now would be held to: never more
+    ///         yes-weight than the seated electorate holds, so quorum cannot demand
+    ///         absent voters. An open proposal gates on `proposalSnapshots(id).quorum`.
     function effectiveQuorumYes() public view returns (uint256) {
         uint256 available = totalVotingPower;
         if (available > 0 && available < quorumYes) return available;
         return quorumYes;
     }
 
-    /// @notice High-tier human quorum actually enforced, capped at seated human weight.
+    /// @notice High-tier human quorum a proposal created now would be held to, capped at
+    ///         seated human weight. An open proposal gates on `proposalSnapshots(id).quorum`.
     function effectiveQuorumHumanYes() public view returns (uint256) {
         uint256 available = totalHumanVotingPower;
         if (available > 0 && available < quorumHumanYes) return available;
@@ -479,6 +545,13 @@ contract GovernanceModule {
             eta: tier == Tier.High ? deadline + highTierTimelock : block.timestamp + lowTierDelay,
             state: ProposalState.Active
         });
+        proposalSnapshots[proposalId] = ProposalSnapshot({
+            seatEpoch: seatEpoch,
+            unanimityFastPath: unanimityFastPath,
+            quorum: tier == Tier.High ? effectiveQuorumHumanYes() : effectiveQuorumYes(),
+            totalVotingPower: totalVotingPower,
+            totalHumanVotingPower: totalHumanVotingPower
+        });
         emit ProposalCreated(proposalId, msg.sender, tier, target, actionHash);
     }
 
@@ -499,7 +572,10 @@ contract GovernanceModule {
         }
     }
 
-    /// @notice Cast a yes/no vote weighted by the caller's seat.
+    /// @notice Cast a yes/no vote weighted by the caller's seat as it stood when the
+    ///         proposal was created. A seat granted since cannot vote on it
+    ///         (`NotSeatedAtProposal`); a seat re-weighted or revoked since votes with
+    ///         its snapshot weight and role.
     function vote(uint256 proposalId, bool support) external {
         Proposal storage p = proposals[proposalId];
         if (p.state != ProposalState.Active || block.timestamp > p.deadline) {
@@ -507,19 +583,23 @@ contract GovernanceModule {
         }
         if (hasVoted[proposalId][msg.sender]) revert AlreadyVoted(proposalId, msg.sender);
 
-        uint256 weight = votingPower[msg.sender];
-        if (weight == 0) revert NoVotingPower(msg.sender);
+        (uint256 weight, SeatRole role) =
+            seatAt(msg.sender, proposalSnapshots[proposalId].seatEpoch);
+        if (weight == 0) {
+            if (votingPower[msg.sender] > 0) revert NotSeatedAtProposal(proposalId, msg.sender);
+            revert NoVotingPower(msg.sender);
+        }
 
         hasVoted[proposalId][msg.sender] = true;
         if (support) {
             p.yesVotes += weight;
-            if (seatRole[msg.sender] == SeatRole.Human) {
+            if (role == SeatRole.Human) {
                 p.yesHumanVotes += weight;
                 yesHumanVoters[proposalId].push(msg.sender);
             }
         } else {
             p.noVotes += weight;
-            if (seatRole[msg.sender] == SeatRole.Human) {
+            if (role == SeatRole.Human) {
                 noHumanVotes[proposalId] += weight;
             }
         }
@@ -593,13 +673,10 @@ contract GovernanceModule {
             return;
         }
 
+        ProposalSnapshot storage snap = proposalSnapshots[proposalId];
         bool high = p.tier == Tier.High;
-        if (high) {
-            if (p.yesHumanVotes < effectiveQuorumHumanYes()) revert QuorumNotMet(proposalId);
-        } else if (p.yesVotes < effectiveQuorumYes()) {
-            revert QuorumNotMet(proposalId);
-        }
-        if (block.timestamp < p.eta && !_unanimousHumanYes(p)) {
+        if ((high ? p.yesHumanVotes : p.yesVotes) < snap.quorum) revert QuorumNotMet(proposalId);
+        if (block.timestamp < p.eta && !_unanimousHumanYes(p, snap)) {
             revert TimelockNotElapsed(proposalId, p.eta);
         }
 
@@ -620,10 +697,15 @@ contract GovernanceModule {
     }
 
     /// @dev The delay shields humans who have not voted; unanimity means none remain.
-    ///      Any human no-vote (or weight granted after the yes votes) breaks unanimity,
-    ///      so the fast path only fires when every seated human backs the action now.
-    function _unanimousHumanYes(Proposal storage p) private view returns (bool) {
-        return unanimityFastPath && totalHumanVotingPower > 0
-            && p.yesHumanVotes >= totalHumanVotingPower;
+    ///      The bar is the human weight seated when the proposal was created, so it
+    ///      fires only when every human of that electorate has voted yes, and no seat
+    ///      granted or revoked since moves it.
+    function _unanimousHumanYes(Proposal storage p, ProposalSnapshot storage snap)
+        private
+        view
+        returns (bool)
+    {
+        return snap.unanimityFastPath && snap.totalHumanVotingPower > 0
+            && p.yesHumanVotes >= snap.totalHumanVotingPower;
     }
 }
