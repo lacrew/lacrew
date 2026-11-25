@@ -28,6 +28,19 @@ The hosted cloud (`lacrew.xyz`) is a separate private repo. It depends on these 
 
 Phase 0 — scaffolding and spec. Contracts and packages contain mock / stub implementations marked clearly. Do not use with real funds.
 
+## Prerequisites
+
+| Tool    | Version                                 | Check             |
+| ------- | --------------------------------------- | ----------------- |
+| Node.js | 22 or newer (CI runs 26)                | `node -v`         |
+| pnpm    | 12.23.0, as pinned in `package.json`    | `pnpm -v`         |
+| Foundry | any recent release; the Anvil loop only | `anvil --version` |
+
+Run `corepack enable` once so `pnpm` resolves to the pinned version. Another
+pnpm will reinstall `node_modules` and rewrite `pnpm-lock.yaml` on the next run.
+Install Foundry with [foundryup](https://book.getfoundry.sh/getting-started/installation).
+Docker is not needed for this quickstart; only `pnpm db:up` (a local Postgres) uses it.
+
 ## Quickstart
 
 ### One command
@@ -86,6 +99,7 @@ export PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f
 export MANAGER_PRIVATE_KEY=0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d
 pnpm --filter @lacrew/orchestrator dev
 curl -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8788/tick
+# (the content-type header is required: without it /tick answers 415 content_type_must_be_json)
 # → {"intentId":"1","verdict":"ESCALATE", ...}
 
 # Terminal D — approve it as the manager (signs EscalationRouter.resolve)

@@ -8,3 +8,7 @@ allowBuilds:
   esbuild: true
 
 minimumReleaseAge: 1440
+
+permissions:
+  ai:
+    skills: false
