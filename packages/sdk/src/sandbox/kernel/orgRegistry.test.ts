@@ -183,4 +183,66 @@ describe("kernel OrgRegistry", () => {
       [],
     );
   });
+
+  describe("fan-out cap (MAX_CHILDREN)", () => {
+    const MAX = 100;
+    const seat = (i: number) => `0x${(0x1000 + i).toString(16).padStart(40, "0")}` as Address;
+
+    /** A registry whose root has `n` workers (seat(0..n-1)). */
+    function fanOut(n: number): Sim {
+      const sim = registry();
+      for (let i = 0; i < n; i++) {
+        sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, seat(i), NodeKind.WorkerAgent, ROOT));
+      }
+      return sim;
+    }
+
+    it("addNode refuses the 101st child with TooManyChildren(parent)", () => {
+      const sim = fanOut(MAX);
+      sim.reverts("TooManyChildren", ROOT, (ctx) =>
+        orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, ROOT),
+      );
+      assert.equal(sim.read((ctx) => orgRegistry.getChildren(ctx, ROOT)).length, MAX);
+      // The cap is per parent: another parent still takes a report.
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, seat(0)));
+    });
+
+    it("names the parent in the error", () => {
+      const sim = fanOut(MAX);
+      assert.throws(
+        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, ROOT)),
+        { errorName: "TooManyChildren", args: { parent: ROOT } },
+      );
+    });
+
+    it("removeNode refuses when the parent would end up over the cap", () => {
+      // root: 99 workers + manager; manager: 2 reports. Removing manager leaves 99 + 2 = 101.
+      const sim = fanOut(MAX - 1);
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, MANAGER, NodeKind.ManagerAgent, ROOT));
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, MANAGER));
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, B, NodeKind.WorkerAgent, MANAGER));
+      sim.reverts("TooManyChildren", ROOT, (ctx) => orgRegistry.removeNode(ctx, MANAGER));
+      // Nothing moved.
+      assert.equal(sim.read((ctx) => orgRegistry.getChildren(ctx, ROOT)).length, MAX);
+      assert.deepEqual(
+        sim.read((ctx) => orgRegistry.getChildren(ctx, MANAGER)),
+        [A, B],
+      );
+      // One report fewer lands exactly on the cap and is allowed.
+      sim.send(ROOT, (ctx) => orgRegistry.removeNode(ctx, B));
+      sim.send(ROOT, (ctx) => orgRegistry.removeNode(ctx, MANAGER));
+      assert.equal(sim.read((ctx) => orgRegistry.getChildren(ctx, ROOT)).length, MAX);
+    });
+
+    it("reparent refuses a full new parent, and allows a no-op move onto it", () => {
+      const sim = fanOut(MAX);
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, MANAGER, NodeKind.ManagerAgent, seat(0)));
+      sim.reverts("TooManyChildren", ROOT, (ctx) => orgRegistry.reparent(ctx, MANAGER, ROOT));
+      // Already a child of its parent: nothing to move, so the cap is not consulted.
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(1), ROOT));
+      // Room opens once a seat leaves.
+      sim.send(ROOT, (ctx) => orgRegistry.removeNode(ctx, seat(2)));
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, MANAGER, ROOT));
+    });
+  });
 });
