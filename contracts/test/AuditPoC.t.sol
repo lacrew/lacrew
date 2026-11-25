@@ -178,30 +178,31 @@ contract AuditPoC is Test {
         address seller = makeAddr("seller");
         vm.prank(seller);
         m.registerListing(bytes32("L"), 100e6);
+        bytes32 L = m.listingIdFor(seller, bytes32("L"));
 
         // The failing purchase reverts as a whole: the spend is undone.
         vm.prank(agentA);
         vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.PriceExceedsMax.selector, 100e6, 99e6));
         r.propose(
-            agentA, address(m), 100e6, abi.encodeCall(MarketplacePayments.purchaseFor, (bytes32("L"), agentA, 99e6))
+            agentA, address(m), 100e6, abi.encodeCall(MarketplacePayments.purchaseFor, (L, agentA, 99e6))
         );
         assertEq(t.allowanceBalance(agentA), 100e6);
         assertEq(usdc.balanceOf(address(m)), 0);
         assertEq(usdc.balanceOf(address(r)), 0);
-        assertFalse(m.hasPurchased(bytes32("L"), agentA));
+        assertFalse(m.hasPurchased(L, agentA));
 
         // Nothing is stranded, so a zero-value claim on the listing cannot succeed.
         vm.prank(agentB);
         vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.DeliveryMismatch.selector, 100e6, 0));
-        r.propose(agentB, address(m), 0, abi.encodeCall(MarketplacePayments.purchaseFor, (bytes32("L"), agentB, 100e6)));
-        assertFalse(m.hasPurchased(bytes32("L"), agentB));
+        r.propose(agentB, address(m), 0, abi.encodeCall(MarketplacePayments.purchaseFor, (L, agentB, 100e6)));
+        assertFalse(m.hasPurchased(L, agentB));
 
         // The honest purchase with a sufficient maxPrice still goes through, paid exactly.
         vm.prank(agentA);
         r.propose(
-            agentA, address(m), 100e6, abi.encodeCall(MarketplacePayments.purchaseFor, (bytes32("L"), agentA, 100e6))
+            agentA, address(m), 100e6, abi.encodeCall(MarketplacePayments.purchaseFor, (L, agentA, 100e6))
         );
-        assertTrue(m.hasPurchased(bytes32("L"), agentA));
+        assertTrue(m.hasPurchased(L, agentA));
         assertEq(t.allowanceBalance(agentA), 0);
         assertEq(usdc.balanceOf(address(m)), 100e6);
         assertEq(m.totalOwed(), 100e6);

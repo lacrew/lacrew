@@ -245,4 +245,57 @@ describe("kernel OrgRegistry", () => {
       sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, MANAGER, ROOT));
     });
   });
+
+  describe("depth cap (MAX_DEPTH)", () => {
+    const MAX_DEPTH = 32;
+    const seat = (i: number) => `0x${(0x3000 + i).toString(16).padStart(40, "0")}` as Address;
+
+    /** A chain seat(1) .. seat(n), seat(1) under the root: seat(i) sits at depth i. */
+    function chain(n: number): Sim {
+      const sim = registry();
+      for (let i = 1; i <= n; i++) {
+        sim.send(ROOT, (ctx) =>
+          orgRegistry.addNode(ctx, seat(i), NodeKind.ManagerAgent, i === 1 ? ROOT : seat(i - 1)),
+        );
+      }
+      return sim;
+    }
+
+    it("addNode refuses a seat below depth 32 with MaxDepthExceeded(account)", () => {
+      const sim = chain(MAX_DEPTH);
+      assert.throws(
+        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, seat(32))),
+        { errorName: "MaxDepthExceeded", args: { account: A } },
+      );
+      assert.equal(sim.read((ctx) => orgRegistry.getChildren(ctx, seat(32))).length, 0);
+      // Depth 32 itself is allowed: the parent one level up still takes a report.
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.WorkerAgent, seat(31)));
+    });
+
+    it("reparent refuses a move that leaves any seat of the subtree past depth 32", () => {
+      const sim = chain(MAX_DEPTH - 2);
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, A, NodeKind.ManagerAgent, ROOT));
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, B, NodeKind.ManagerAgent, A));
+      sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, C, NodeKind.ManagerAgent, B));
+      // Under seat(30): A 31, B 32, C 33. Refused, naming the moved account.
+      assert.throws(() => sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, A, seat(30))), {
+        errorName: "MaxDepthExceeded",
+        args: { account: A },
+      });
+      assert.equal(sim.read((ctx) => orgRegistry.getNode(ctx, A)).parent, ROOT);
+      // One level up: C lands exactly on 32.
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, A, seat(29)));
+      // addNode agrees: nothing goes below depth 32.
+      assert.throws(
+        () => sim.send(ROOT, (ctx) => orgRegistry.addNode(ctx, WORKER, NodeKind.WorkerAgent, C)),
+        { errorName: "MaxDepthExceeded", args: { account: WORKER } },
+      );
+    });
+
+    it("reparent up the tree, or a no-op move, is never refused", () => {
+      const sim = chain(MAX_DEPTH);
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(MAX_DEPTH), seat(MAX_DEPTH - 1)));
+      sim.send(ROOT, (ctx) => orgRegistry.reparent(ctx, seat(27), ROOT));
+    });
+  });
 });

@@ -4,7 +4,7 @@ title: "Security model"
 
 Users do not buy composability. They buy **"my agents cannot rug me."**
 
-> **Honesty check:** ERC-4337 / passkey AA are **not** implemented yet. Phase 0 ships `SessionRegistry` (ephemeral EOA + TTL + `maxValue` + optional `allowedTarget` + root revoke). When wired, `EscalationRouter.propose` requires a valid session key (or the agent address), `value ≤ maxValue`, and target match when pinned. Resolve still uses manager/root EOAs. See root [`SECURITY.md`](https://github.com/marc-aurele-besner/lacrew/blob/main/SECURITY.md).
+> **Honesty check:** ERC-4337 / passkey AA are **not** implemented yet. Phase 0 ships `SessionRegistry` (ephemeral EOA + TTL + `maxValue` + optional `allowedTarget` + root revoke). `EscalationRouter.propose` requires a valid session key (or the agent address); until a registry is wired only the agent itself may propose, and the registry cannot be cleared, `value ≤ maxValue`, and target match when pinned. Resolve still uses manager/root EOAs. See root [`SECURITY.md`](https://github.com/marc-aurele-besner/lacrew/blob/main/SECURITY.md).
 
 ## Threat → intended bound
 

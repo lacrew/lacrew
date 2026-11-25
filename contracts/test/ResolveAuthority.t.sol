@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {Treasury} from "../src/Treasury.sol";
@@ -12,7 +13,7 @@ import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 /// Who may resolve a pending intent once the tree has changed underneath it:
 /// only active nodes approve, an intent whose agent has left cannot be approved,
 /// and the org root stands in for an approver that is inactive or gone.
-contract ResolveAuthorityTest is Test {
+contract ResolveAuthorityTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal director = makeAddr("director");
     address internal manager = makeAddr("manager");
@@ -42,6 +43,13 @@ contract ResolveAuthorityTest is Test {
         spendCap.setAgentCap(director, 1000 * ONE);
 
         router = new EscalationRouter(address(registry), address(spendCap));
+        {
+            address[] memory agents_ = new address[](3);
+            agents_[0] = director;
+            agents_[1] = manager;
+            agents_[2] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         usdc = new MockUSDC();
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));

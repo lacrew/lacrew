@@ -937,6 +937,7 @@ export class SandboxLacrewClient implements ProtocolClient {
         effectiveQuorumHumanYes: governance.effectiveQuorumHumanYes(ctx).toString(),
         votingPeriod: Number(g.votingPeriod),
         highTierTimelock: Number(g.highTierTimelock),
+        lowTierDelay: Number(governance.lowTierDelay(ctx)),
         unanimityFastPath: g.unanimityFastPath,
       };
     });
@@ -1282,15 +1283,15 @@ export class SandboxLacrewClient implements ProtocolClient {
 
   // ——— What only a chain can do ———
 
-  async quoteListing(_catalogId: string): Promise<never> {
+  async quoteListing(_seller: Address, _catalogId: string): Promise<never> {
     throw new SandboxNeedsChainError("Marketplace payments");
   }
 
-  async getListing(_catalogId: string): Promise<never> {
+  async getListing(_seller: Address, _catalogId: string): Promise<never> {
     throw new SandboxNeedsChainError("Marketplace payments");
   }
 
-  async hasPurchased(_catalogId: string, _buyer: Address): Promise<never> {
+  async hasPurchased(_seller: Address, _catalogId: string, _buyer: Address): Promise<never> {
     throw new SandboxNeedsChainError("Marketplace payments");
   }
 
@@ -1298,11 +1299,19 @@ export class SandboxLacrewClient implements ProtocolClient {
     throw new SandboxNeedsChainError("Marketplace payments");
   }
 
-  async purchaseListing(_input: { catalogId: string; maxPrice?: bigint }): Promise<never> {
+  async purchaseListing(_input: {
+    seller: Address;
+    catalogId: string;
+    maxPrice?: bigint;
+  }): Promise<never> {
     throw new SandboxNeedsChainError("Marketplace payments");
   }
 
-  async proposeMarketplacePurchase(_input: { agent: Address; catalogId: string }): Promise<never> {
+  async proposeMarketplacePurchase(_input: {
+    agent: Address;
+    seller: Address;
+    catalogId: string;
+  }): Promise<never> {
     throw new SandboxNeedsChainError("Marketplace payments");
   }
 

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
@@ -154,7 +155,7 @@ contract MultiAssetHandler is Test {
 /// @dev Two Treasury+Router stacks (6- and 18-decimal) over ONE OrgRegistry.
 ///      Proves that sharing the org chart across assets never lets funds cross
 ///      between them, under any fuzzed interleaving of proposes/resolves.
-contract MultiAssetInvariantTest is StdInvariant, Test {
+contract MultiAssetInvariantTest is StdInvariant, SessionWiring {
     uint256 internal constant USDC_DEPOSIT = 100_000e6;
     uint256 internal constant WETH_DEPOSIT = 1_000e18;
 
@@ -210,6 +211,13 @@ contract MultiAssetInvariantTest is StdInvariant, Test {
             wethRouter,
             wethTarget
         );
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _issueSessionsTo(usdcRouter.sessionRegistry(), root, address(handler), agents_);
+            _issueSessionsTo(wethRouter.sessionRegistry(), root, address(handler), agents_);
+        }
         targetContract(address(handler));
     }
 
@@ -230,6 +238,12 @@ contract MultiAssetInvariantTest is StdInvariant, Test {
         PolicyStack stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         treasury = new Treasury(address(registry), token, address(router));
         router.setTreasury(address(treasury));
     }

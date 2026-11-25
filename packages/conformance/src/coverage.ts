@@ -43,6 +43,8 @@ export const NOT_SIMULATED: Record<string, string> = {
     "Unreachable since setGovernor drops the admin: once a governor is bound nobody passes the admin check that precedes this one, so a second bind reverts NotAuthorized.",
   "WhitelistPolicy.GovernorAlreadySet":
     "Unreachable since setGovernor drops the admin: once a governor is bound nobody passes the admin check that precedes this one, so a second bind reverts NotAuthorized.",
+  "EscalationRouter.SessionRegistryNotSet":
+    "Raised only by a router that never had a registry wired. Every org the scenarios deploy wires one at genesis and setSessionRegistry cannot clear it, so no scenario reaches it; the kernel unit test and the Foundry regression test (SessionRegistryRequired.t.sol) cover it.",
   "EscalationRouter.setValueRecorder":
     "Binds a CumulativeValuePolicy, which the sandbox does not model; a sandbox org records no settled value. TODO: mirror the module and the router's value recording in the kernel.",
   "EscalationRouter.setNodeValueRecorder":
@@ -62,8 +64,6 @@ export const NOT_SIMULATED: Record<string, string> = {
   "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
   "OrgRegistry.GovernorAlreadySet":
     "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
-  "OrgRegistry.MaxDepthExceeded":
-    "Gas guard: caps tree depth at MAX_DEPTH (32) so the ancestor walk fits a block. Reaching it needs a chain over 32 seats deep; the sandbox kernel does not model the cap. Covered by OrgRegistry.t.sol.",
   "Treasury.withdraw":
     "High-tier governed payout of liquid funds out of the treasury. Not modelled by the sandbox kernel. TODO: mirror it in the kernel.",
   "GovernanceModule.WithdrawNotHighTier":
@@ -88,7 +88,7 @@ export const NOT_SIMULATED: Record<string, string> = {
  */
 export const NOT_SIMULATED_CONTRACTS: Record<string, string> = {
   MarketplacePayments:
-    "Buyer-to-seller settlement in real tokens. The sandbox client refuses its methods with SandboxNeedsChainError.",
+    "Buyer-to-seller settlement in real tokens. The sandbox client refuses its methods with SandboxNeedsChainError. Listing ids are derived onchain as keccak256(abi.encode(seller, catalogId)); that derivation is pinned by MarketplacePayments.t.sol (squatting regression) and an SDK test vector, not by a sandbox scenario.",
   MockWETH:
     "Second asset stack. A sandbox org has one asset stack (the primary one); multi-asset orgs need a chain.",
 };

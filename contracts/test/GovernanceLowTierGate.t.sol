@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
@@ -16,7 +17,7 @@ import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 ///         treasury a spender, or stripping their own policy — even with the root
 ///         voting against. The low tier now carries only allow-listed actions, waits a
 ///         delay every human can act in, and needs more yes-weight than no-weight.
-contract GovernanceLowTierGateTest is Test {
+contract GovernanceLowTierGateTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal peerHuman = makeAddr("peer-human");
     address internal agentA = makeAddr("agent-a");
@@ -40,6 +41,12 @@ contract GovernanceLowTierGateTest is Test {
 
         WhitelistPolicy whitelist = new WhitelistPolicy();
         router = new EscalationRouter(address(registry), address(whitelist));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = agentA;
+            agents_[1] = agentB;
+            _wireSessions(router, registry, root, agents_);
+        }
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
 

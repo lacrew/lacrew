@@ -134,11 +134,9 @@ export const registryScenarios: Scenario[] = [
     // setGovernor rejects a zero governor before it asks who is calling.
     b.reverts("ZeroAddress", "stranger", "@router", "setGovernor", ["zero"]);
 
-    // No session registry: anyone may propose for an agent.
-    b.call("root", "@router", "setSessionRegistry", ["zero"], {
-      events: ["SessionRegistryUpdated"],
-    });
-    b.allow("stranger", "worker", "target", 1n * USDC);
+    // The session registry can be replaced but never cleared: with none, anyone could propose.
+    b.reverts("ZeroAddress", "root", "@router", "setSessionRegistry", ["zero"]);
+    b.proposeReverts("InvalidSession", "stranger", "worker", "target", 1n * USDC);
     // No recorder: actions are not counted.
     b.call("root", "@router", "setRateRecorder", ["zero"], { events: ["RateRecorderUpdated"] });
     b.allow("worker", "worker", "target", 1n * USDC);
@@ -148,7 +146,7 @@ export const registryScenarios: Scenario[] = [
       verdict: "ALLOW",
       events: ["ActionExecuted"],
     });
-    b.expect({ allowance: { worker: 198n * USDC }, balance: { target: 2n * USDC } });
+    b.expect({ allowance: { worker: 199n * USDC }, balance: { target: 1n * USDC } });
 
     b.call("root", "@router", "setGovernor", ["human2"], { events: ["GovernorUpdated"] });
     b.reverts("NotAuthorized", "root", "@router", "setTreasury", ["@treasury"]);
@@ -157,6 +155,6 @@ export const registryScenarios: Scenario[] = [
     b.call("human2", "@router", "setSessionRegistry", ["@sessions"]);
     b.proposeReverts("InvalidSession", "stranger", "worker", "target", 1n);
     b.allow("worker", "worker", "target", 1n * USDC);
-    b.expect({ allowance: { worker: 197n * USDC } });
+    b.expect({ allowance: { worker: 198n * USDC } });
   }),
 ];

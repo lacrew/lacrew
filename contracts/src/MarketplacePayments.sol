@@ -59,7 +59,10 @@ contract MarketplacePayments {
         bool active;
     }
 
-    /// @notice Listing id is `keccak256(catalogId)` — the catalog stays off-chain.
+    /// @notice Listing id is `keccak256(abi.encode(seller, catalogId))` where `catalogId` is
+    ///         the hash of the off-chain catalog entry — the catalog stays off-chain. Binding
+    ///         the seller into the id means nobody can register, or front-run, another
+    ///         seller's id.
     mapping(bytes32 => Listing) public listings;
 
     /// @notice Purchase receipts. Non-zero is proof of entitlement and its timestamp.
@@ -116,16 +119,20 @@ contract MarketplacePayments {
 
     // ——— Selling ———
 
-    /// @notice List `listingId` for `price`, or update the price of one you already own.
-    /// @dev The seller is bound on first registration; a different caller can never take
-    ///      over an id, so a catalog id cannot be hijacked to redirect payment.
-    function registerListing(bytes32 listingId, uint256 price) external {
+    /// @notice The id under which `seller` lists `catalogId`.
+    function listingIdFor(address seller, bytes32 catalogId) public pure returns (bytes32) {
+        return keccak256(abi.encode(seller, catalogId));
+    }
+
+    /// @notice List `catalogId` for `price` as the caller, or update the price of the caller's
+    ///         existing listing of it.
+    /// @dev The listing id is derived from `(msg.sender, catalogId)`, so the seller of an id is
+    ///      fixed by construction: another address registering the same `catalogId` gets a
+    ///      different listing and can never collect this seller's payments.
+    function registerListing(bytes32 catalogId, uint256 price) external returns (bytes32 listingId) {
+        listingId = listingIdFor(msg.sender, catalogId);
         Listing storage l = listings[listingId];
-        if (l.seller == address(0)) {
-            l.seller = msg.sender;
-        } else if (l.seller != msg.sender) {
-            revert NotSeller(msg.sender, l.seller);
-        }
+        l.seller = msg.sender;
         l.price = price;
         l.active = true;
         emit ListingRegistered(listingId, msg.sender, price);

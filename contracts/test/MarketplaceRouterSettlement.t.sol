@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
@@ -19,10 +20,12 @@ import {IPolicyModule} from "../src/interfaces/IPolicyModule.sol";
 ///      take the listing agent A had paid for in a call that failed. Settlement is pull
 ///      based and atomic now, so the stranded payment cannot arise; these tests pin that
 ///      `purchaseFor` still settles only from the payment of its own call.
-contract MarketplaceRouterSettlementTest is Test {
+contract MarketplaceRouterSettlementTest is SessionWiring {
     uint256 internal constant ONE = 1e6;
     uint256 internal constant PRICE = 100 * ONE;
-    bytes32 internal constant LISTING = keccak256("agent-payroll-manager");
+    bytes32 internal constant CATALOG = keccak256("agent-payroll-manager");
+    /// @dev Derived from (seller, CATALOG); set in setUp.
+    bytes32 internal LISTING;
 
     address internal root = makeAddr("root");
     address internal agentA = makeAddr("agentA");
@@ -46,19 +49,27 @@ contract MarketplaceRouterSettlementTest is Test {
 
         market = new MarketplacePayments(address(usdc), platform, governor, 2000);
 
+        LISTING = market.listingIdFor(seller, CATALOG);
+
         WhitelistPolicy whitelist = new WhitelistPolicy();
         whitelist.setAllowed(address(market), true);
         IPolicyModule[] memory modules = new IPolicyModule[](2);
         modules[0] = whitelist;
         modules[1] = new SpendCapPolicy(1_000 * ONE);
         router = new EscalationRouter(address(registry), address(new PolicyStack(modules)));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = agentA;
+            agents_[1] = agentB;
+            _wireSessions(router, registry, root, agents_);
+        }
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
 
         vm.prank(governor);
         market.setSettlementRouter(address(router));
         vm.prank(seller);
-        market.registerListing(LISTING, PRICE);
+        market.registerListing(CATALOG, PRICE);
 
         usdc.mint(address(this), 1_000 * ONE);
         usdc.approve(address(treasury), type(uint256).max);

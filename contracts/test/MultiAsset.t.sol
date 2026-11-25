@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
 import {MockUSDC} from "../src/mocks/MockUSDC.sol";
@@ -19,7 +20,7 @@ import {IPolicyModule, Verdict} from "../src/interfaces/IPolicyModule.sol";
 ///      deploying one Treasury + EscalationRouter + EpochStreamer per asset
 ///      over a shared OrgRegistry. These tests prove the assets stay isolated
 ///      and that policy stacks must be denominated per asset.
-contract MultiAssetTest is Test {
+contract MultiAssetTest is SessionWiring {
     uint256 internal constant USDC_ONE = 1e6;
     uint256 internal constant WETH_ONE = 1e18;
 
@@ -78,6 +79,12 @@ contract MultiAssetTest is Test {
         PolicyStack stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         treasury = new Treasury(address(registry), token, address(router));
         router.setTreasury(address(treasury));
 

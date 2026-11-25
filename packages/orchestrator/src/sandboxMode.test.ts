@@ -679,7 +679,7 @@ describe("what only a chain can do", () => {
       ["faucet top-up", api.post("/faucet/top-up", { account: worker })],
       [
         "marketplace purchase",
-        api.post("/marketplace/purchase", { catalogId: "x", agent: worker }),
+        api.post("/marketplace/purchase", { catalogId: "x", seller: worker, agent: worker }),
       ],
       ["marketplace listing", api.post("/marketplace/list", { catalogId: "x", price: "1" })],
       ["marketplace withdrawal", api.post("/marketplace/withdraw")],
@@ -706,7 +706,7 @@ describe("what only a chain can do", () => {
       assert.equal(res.body.ledger, "sandbox", what);
     }
     // Reads that describe "nothing listed" stay answers, not refusals.
-    const quote = await api.get("/marketplace/quote?catalogId=x");
+    const quote = await api.get("/marketplace/quote?catalogId=x&seller=" + worker);
     assert.equal(quote.status, 200);
     assert.equal(quote.body.listed, false);
   });

@@ -19,18 +19,21 @@ contract MarketplacePaymentsTest is Test {
 
     uint256 internal constant ONE = 1e6;
     uint16 internal constant FEE_BPS = 2000; // 20%
-    bytes32 internal constant LISTING = keccak256("agent-payroll-manager");
+    bytes32 internal constant CATALOG = keccak256("agent-payroll-manager");
+    /// @dev Derived from (seller, CATALOG); set in setUp.
+    bytes32 internal LISTING;
 
     function setUp() public {
         usdc = new MockUSDC();
         market = new MarketplacePayments(address(usdc), platform, governor, FEE_BPS);
+        LISTING = market.listingIdFor(seller, CATALOG);
 
         usdc.mint(buyer, 10_000 * ONE);
         vm.prank(buyer);
         usdc.approve(address(market), type(uint256).max);
 
         vm.prank(seller);
-        market.registerListing(LISTING, 100 * ONE);
+        market.registerListing(CATALOG, 100 * ONE);
     }
 
     // ——— The 20% split ———
@@ -106,9 +109,10 @@ contract MarketplacePaymentsTest is Test {
     }
 
     function test_freeListingRecordsEntitlementWithoutTransfer() public {
-        bytes32 free = keccak256("free-flow");
+        bytes32 freeCat = keccak256("free-flow");
+        bytes32 free = market.listingIdFor(seller, freeCat);
         vm.prank(seller);
-        market.registerListing(free, 0);
+        market.registerListing(freeCat, 0);
 
         vm.prank(buyer);
         market.purchase(free, 0);
@@ -123,7 +127,7 @@ contract MarketplacePaymentsTest is Test {
     /// A seller raising the price must not be able to collect more than the buyer agreed to.
     function test_revertsWhenPriceRaisedAboveBuyerMax() public {
         vm.prank(seller);
-        market.registerListing(LISTING, 500 * ONE);
+        market.registerListing(CATALOG, 500 * ONE);
 
         vm.prank(buyer);
         vm.expectRevert(
@@ -136,7 +140,7 @@ contract MarketplacePaymentsTest is Test {
 
     function test_priceDropBelowMaxChargesTheLowerPrice() public {
         vm.prank(seller);
-        market.registerListing(LISTING, 40 * ONE);
+        market.registerListing(CATALOG, 40 * ONE);
 
         vm.prank(buyer);
         market.purchase(LISTING, 100 * ONE);
@@ -147,18 +151,56 @@ contract MarketplacePaymentsTest is Test {
 
     // ——— Listing ownership ———
 
-    /// A catalog id must not be hijackable to redirect payment.
-    function test_revertsWhenOtherTriesToTakeOverListing() public {
+    /// The id is derived from (seller, catalogId), so a second address registering the
+    /// same catalog id gets its own listing and cannot touch the first seller's.
+    function test_squatterGetsDifferentListingThanSeller() public {
         vm.prank(other);
-        vm.expectRevert(
-            abi.encodeWithSelector(MarketplacePayments.NotSeller.selector, other, seller)
-        );
-        market.registerListing(LISTING, 1 * ONE);
+        bytes32 squatId = market.registerListing(CATALOG, 1 * ONE);
+
+        assertEq(squatId, market.listingIdFor(other, CATALOG));
+        assertTrue(squatId != LISTING, "different seller, different id");
+
+        (address sellerOfReal, uint256 realPrice, bool realActive) = market.listings(LISTING);
+        assertEq(sellerOfReal, seller, "real listing still bound to the real seller");
+        assertEq(realPrice, 100 * ONE, "real price untouched");
+        assertTrue(realActive);
+        (address sellerOfSquat,,) = market.listings(squatId);
+        assertEq(sellerOfSquat, other);
+    }
+
+    /// Squatting regression: registering first (front-running) a real seller's catalog id
+    /// must not capture that seller's payments.
+    function test_frontRunnerCannotCollectRealSellersPayments() public {
+        MarketplacePayments fresh =
+            new MarketplacePayments(address(usdc), platform, governor, FEE_BPS);
+        address attacker = makeAddr("attacker");
+
+        // The attacker registers the public catalog id before the real seller does.
+        vm.prank(attacker);
+        fresh.registerListing(CATALOG, 1 * ONE);
+        vm.prank(seller);
+        bytes32 realId = fresh.registerListing(CATALOG, 100 * ONE);
+
+        vm.startPrank(buyer);
+        usdc.approve(address(fresh), type(uint256).max);
+        fresh.purchase(realId, 100 * ONE);
+        vm.stopPrank();
+
+        assertEq(fresh.owed(seller), 80 * ONE, "the real seller is paid");
+        assertEq(fresh.owed(attacker), 0, "the squatter collects nothing");
+    }
+
+    /// Registering returns the derived id.
+    function test_registerReturnsDerivedId() public {
+        vm.prank(seller);
+        bytes32 id = market.registerListing(CATALOG, 7 * ONE);
+        assertEq(id, LISTING);
+        assertEq(id, market.listingIdFor(seller, CATALOG));
     }
 
     function test_sellerCanUpdateOwnPrice() public {
         vm.prank(seller);
-        market.registerListing(LISTING, 250 * ONE);
+        market.registerListing(CATALOG, 250 * ONE);
         (, uint256 price,) = market.listings(LISTING);
         assertEq(price, 250 * ONE);
     }
@@ -286,9 +328,10 @@ contract MarketplacePaymentsTest is Test {
         vm.prank(governor);
         market.setFeeRecipient(newPlatform);
 
-        bytes32 second = keccak256("second");
+        bytes32 secondCat = keccak256("second");
+        bytes32 second = market.listingIdFor(seller, secondCat);
         vm.prank(seller);
-        market.registerListing(second, 50 * ONE);
+        market.registerListing(secondCat, 50 * ONE);
         vm.prank(buyer);
         market.purchase(second, 50 * ONE);
 
@@ -361,9 +404,10 @@ contract MarketplacePaymentsTest is Test {
     }
 
     function test_purchaseForSettlesFreeListingWithNoPayment() public {
-        bytes32 free = keccak256("free");
+        bytes32 freeCat = keccak256("free");
+        bytes32 free = market.listingIdFor(seller, freeCat);
         vm.prank(seller);
-        market.registerListing(free, 0);
+        market.registerListing(freeCat, 0);
         _approveAndSettle(free, buyer, 0, 0);
         assertTrue(market.hasPurchased(free, buyer));
     }
@@ -450,9 +494,10 @@ contract MarketplacePaymentsTest is Test {
         market.purchase(LISTING, 100 * ONE);
         assertEq(usdc.balanceOf(address(market)), 100 * ONE);
 
-        bytes32 second = keccak256("second");
+        bytes32 secondCat = keccak256("second");
+        bytes32 second = market.listingIdFor(seller, secondCat);
         vm.prank(seller);
-        market.registerListing(second, 100 * ONE);
+        market.registerListing(secondCat, 100 * ONE);
 
         // The router pays nothing: the held balance belongs to payees.
         vm.expectRevert(
@@ -465,7 +510,7 @@ contract MarketplacePaymentsTest is Test {
     function test_purchaseForRespectsMaxPrice() public {
         MockSettlementRouter router = _wireRouter();
         vm.prank(seller);
-        market.registerListing(LISTING, 500 * ONE);
+        market.registerListing(CATALOG, 500 * ONE);
 
         usdc.mint(address(router), 500 * ONE);
         vm.expectRevert(
@@ -500,7 +545,7 @@ contract MarketplacePaymentsTest is Test {
         FeeOnTransferToken fot = new FeeOnTransferToken();
         MarketplacePayments m = new MarketplacePayments(address(fot), platform, governor, 2000);
         vm.prank(seller);
-        m.registerListing(LISTING, 100 * ONE);
+        m.registerListing(CATALOG, 100 * ONE);
         fot.mint(buyer, 100 * ONE);
         vm.startPrank(buyer);
         fot.approve(address(m), 100 * ONE);
@@ -534,9 +579,10 @@ contract MarketplacePaymentsTest is Test {
         vm.prank(governor);
         market.setFeeBps(fee);
 
-        bytes32 id = keccak256(abi.encode(price, fee));
+        bytes32 catalog = keccak256(abi.encode(price, fee));
+        bytes32 id = market.listingIdFor(seller, catalog);
         vm.prank(seller);
-        market.registerListing(id, price);
+        market.registerListing(catalog, price);
 
         usdc.mint(buyer, price);
         vm.prank(buyer);
@@ -549,9 +595,10 @@ contract MarketplacePaymentsTest is Test {
 
     function testFuzz_everyPayeeCanAlwaysWithdraw(uint96 price) public {
         price = uint96(bound(price, 1, type(uint96).max));
-        bytes32 id = keccak256(abi.encode("fuzz", price));
+        bytes32 catalog = keccak256(abi.encode("fuzz", price));
+        bytes32 id = market.listingIdFor(seller, catalog);
         vm.prank(seller);
-        market.registerListing(id, price);
+        market.registerListing(catalog, price);
 
         usdc.mint(buyer, price);
         vm.prank(buyer);

@@ -1,6 +1,6 @@
 /**
  * The gas guards of #624: a node has at most MAX_CHILDREN (100) direct reports,
- * and the payroll has at most MAX_RECIPIENTS (100) recipients. Every path that
+ * the tree is at most MAX_DEPTH (32) deep, and the payroll has at most MAX_RECIPIENTS (100) recipients. Every path that
  * grows either list must refuse the 101st entry the same way on the simulator
  * and on a chain.
  */
@@ -11,6 +11,8 @@ const MAX = 100;
 
 /** Seat `i` as a literal address: refs may be hex, and the cast has far fewer than 100 names. */
 const seat = (base: number, i: number): string => `0x${(base + i).toString(16).padStart(40, "0")}`;
+
+const MAX_DEPTH = 32;
 
 export const fanOutScenarios: Scenario[] = [
   scenario(
@@ -71,6 +73,54 @@ export const fanOutScenarios: Scenario[] = [
     b.call("root", "@registry", "removeNode", ["worker"]);
     b.call("root", "@registry", "rotateRoot", ["human2"]);
     b.expect({ nodes: { root: null, human2: { parent: null }, manager: { parent: "human2" } } });
+  }),
+
+  scenario("the tree is at most 32 deep: addNode refuses the 33rd level", (b) => {
+    // seat(1) .. seat(32): a chain whose last seat sits at depth 32.
+    for (let i = 1; i <= MAX_DEPTH; i++) {
+      b.call("root", "@registry", "addNode", [
+        seat(0x3000, i),
+        KIND.manager,
+        i === 1 ? "root" : seat(0x3000, i - 1),
+      ]);
+    }
+    b.reverts("MaxDepthExceeded", "root", "@registry", "addNode", [
+      "target",
+      KIND.worker,
+      seat(0x3000, MAX_DEPTH),
+    ]);
+    b.expect({ nodes: { target: null } });
+    // One level up still takes a report.
+    b.call("root", "@registry", "addNode", ["target", KIND.worker, seat(0x3000, MAX_DEPTH - 1)]);
+  }),
+
+  scenario("reparent refuses a move that leaves any seat of the subtree past depth 32", (b) => {
+    // seat(1) .. seat(30): a chain whose last seat sits at depth 30.
+    for (let i = 1; i <= MAX_DEPTH - 2; i++) {
+      b.call("root", "@registry", "addNode", [
+        seat(0x3000, i),
+        KIND.manager,
+        i === 1 ? "root" : seat(0x3000, i - 1),
+      ]);
+    }
+    b.call("root", "@registry", "addNode", ["manager", KIND.manager, "root"]);
+    b.call("root", "@registry", "addNode", ["manager2", KIND.manager, "manager"]);
+    b.call("root", "@registry", "addNode", ["worker", KIND.worker, "manager2"]);
+    // Under seat 30: manager 31, manager2 32, worker 33. One level too deep.
+    b.reverts("MaxDepthExceeded", "root", "@registry", "reparent", [
+      "manager",
+      seat(0x3000, MAX_DEPTH - 2),
+    ]);
+    b.expect({ nodes: { manager: { parent: "root" } } });
+    // One level up the worker lands exactly on 32.
+    b.call("root", "@registry", "reparent", ["manager", seat(0x3000, MAX_DEPTH - 3)]);
+    // addNode agrees: nothing goes below depth 32.
+    b.reverts("MaxDepthExceeded", "root", "@registry", "addNode", [
+      "target",
+      KIND.worker,
+      "worker",
+    ]);
+    b.expect({ nodes: { target: null, manager: { parent: seat(0x3000, MAX_DEPTH - 3) } } });
   }),
 
   scenario("the payroll takes at most 100 recipients", (b) => {

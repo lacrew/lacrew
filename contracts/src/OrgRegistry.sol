@@ -191,7 +191,8 @@ contract OrgRegistry is IOrgRegistry {
         emit NodeRemoved(account, parent);
     }
 
-    /// @notice Move `account` under `newParent`. Rejects cycles and root moves.
+    /// @notice Move `account` under `newParent`. Rejects cycles, root moves, and a move
+    ///         that would leave any seat of the moved subtree deeper than MAX_DEPTH.
     function reparent(address account, address newParent) external {
         _authorize();
         Node storage node = _nodes[account];
@@ -204,6 +205,12 @@ contract OrgRegistry is IOrgRegistry {
         address oldParent = node.parent;
         if (oldParent == newParent) return;
         if (_children[newParent].length >= MAX_CHILDREN) revert TooManyChildren(newParent);
+        // The deepest seat of the moved subtree must still sit at or above MAX_DEPTH,
+        // the same bound `addNode` holds.
+        uint256 newDepth = _depth(newParent) + 1;
+        if (newDepth > MAX_DEPTH || _reachesBelow(account, MAX_DEPTH - newDepth)) {
+            revert MaxDepthExceeded(account);
+        }
 
         _removeFromParent(oldParent, account);
         node.parent = newParent;
@@ -230,6 +237,21 @@ contract OrgRegistry is IOrgRegistry {
             if (++d > MAX_DEPTH) revert MaxDepthExceeded(node);
             cursor = _nodes[cursor].parent;
         }
+    }
+
+    /// @dev True if `node` has a descendant more than `levels` below it. Depth-first and
+    ///      cut off at `levels`, so recursion is at most MAX_DEPTH + 1 frames and each
+    ///      node reads at most MAX_CHILDREN entries. The cost is linear in the moved
+    ///      subtree (nodes within `levels` of `account`), which only the org's own size
+    ///      limits.
+    function _reachesBelow(address node, uint256 levels) private view returns (bool) {
+        address[] storage kids = _children[node];
+        uint256 n = kids.length;
+        if (levels == 0) return n != 0;
+        for (uint256 i = 0; i < n; i++) {
+            if (_reachesBelow(kids[i], levels - 1)) return true;
+        }
+        return false;
     }
 
     function _removeFromParent(address parent, address child) private {
