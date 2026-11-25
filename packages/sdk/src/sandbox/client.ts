@@ -937,6 +937,7 @@ export class SandboxLacrewClient implements ProtocolClient {
         effectiveQuorumHumanYes: governance.effectiveQuorumHumanYes(ctx).toString(),
         votingPeriod: Number(g.votingPeriod),
         highTierTimelock: Number(g.highTierTimelock),
+        lowTierDelay: Number(governance.lowTierDelay(ctx)),
         unanimityFastPath: g.unanimityFastPath,
       };
     });
