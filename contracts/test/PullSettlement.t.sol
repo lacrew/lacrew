@@ -232,9 +232,10 @@ contract PullSettlementTest is Test {
             new MarketplacePayments(address(usdc), makeAddr("platform"), address(this), 2000);
         market.setSettlementRouter(address(router));
         whitelist.setAllowed(address(market), true);
-        bytes32 listing = keccak256("listing");
+        bytes32 catalog = keccak256("listing");
+        bytes32 listing = market.listingIdFor(vendor, catalog);
         vm.prank(vendor);
-        market.registerListing(listing, 30 * ONE);
+        market.registerListing(catalog, 30 * ONE);
 
         router.propose(
             worker,
@@ -258,9 +259,10 @@ contract PullSettlementTest is Test {
             new MarketplacePayments(address(usdc), makeAddr("platform"), address(this), 2000);
         market.setSettlementRouter(address(router));
         whitelist.setAllowed(address(market), true);
-        bytes32 listing = keccak256("listing");
+        bytes32 catalog = keccak256("listing");
+        bytes32 listing = market.listingIdFor(vendor, catalog);
         vm.prank(vendor);
-        market.registerListing(listing, 30 * ONE);
+        market.registerListing(catalog, 30 * ONE);
 
         vm.expectRevert(
             abi.encodeWithSelector(

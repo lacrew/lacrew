@@ -181,12 +181,20 @@ describe("orchestrator Hono app", () => {
   });
 
   it("reports a listing as unlisted in mock mode rather than inventing a price", async () => {
-    const res = await buildApp().request("/marketplace/quote?catalogId=flow-x");
+    const res = await buildApp().request(
+      "/marketplace/quote?catalogId=flow-x&seller=0x00000000000000000000000000000000000000a1",
+    );
     assert.equal(res.status, 200);
     const body = (await res.json()) as Record<string, unknown>;
     assert.equal(body.listed, false);
     assert.equal(body.gross, "0");
     assert.equal(body.purchased, false);
+  });
+
+  it("requires a seller on quote, since a catalog id alone names no listing", async () => {
+    const res = await buildApp().request("/marketplace/quote?catalogId=flow-x");
+    assert.equal(res.status, 400);
+    assert.deepEqual(await res.json(), { error: "seller_required" });
   });
 
   it("requires catalogId on quote", async () => {
@@ -197,7 +205,7 @@ describe("orchestrator Hono app", () => {
 
   it("answers batch entitlement with every buyer unentitled in mock mode", async () => {
     const res = await buildApp().request(
-      "/marketplace/entitlement?catalogId=flow-x&buyers=0x0000000000000000000000000000000000000001,0x0000000000000000000000000000000000000002",
+      "/marketplace/entitlement?catalogId=flow-x&seller=0x00000000000000000000000000000000000000a1&buyers=0x0000000000000000000000000000000000000001,0x0000000000000000000000000000000000000002",
     );
     assert.equal(res.status, 200);
     const body = (await res.json()) as Record<string, unknown>;
@@ -210,14 +218,16 @@ describe("orchestrator Hono app", () => {
   });
 
   it("requires buyers on batch entitlement", async () => {
-    const res = await buildApp().request("/marketplace/entitlement?catalogId=flow-x");
+    const res = await buildApp().request(
+      "/marketplace/entitlement?catalogId=flow-x&seller=0x00000000000000000000000000000000000000a1",
+    );
     assert.equal(res.status, 400);
     assert.deepEqual(await res.json(), { error: "buyers_required" });
   });
 
   it("rejects non-address buyers on batch entitlement", async () => {
     const res = await buildApp().request(
-      "/marketplace/entitlement?catalogId=flow-x&buyers=not-an-address",
+      "/marketplace/entitlement?catalogId=flow-x&seller=0x00000000000000000000000000000000000000a1&buyers=not-an-address",
     );
     assert.equal(res.status, 400);
     assert.deepEqual(await res.json(), { error: "buyers_must_be_addresses" });
@@ -235,6 +245,7 @@ describe("orchestrator Hono app", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         catalogId: "flow-x",
+        seller: "0x00000000000000000000000000000000000000a1",
         agent: "0x0000000000000000000000000000000000000001",
       }),
     });

@@ -16,7 +16,10 @@ contract MarketplaceHandler is Test {
 
     address[] public sellers;
     address[] public buyers;
+    bytes32[] public catalogIds;
+    /// Derived ids of every listing registered so far (buyers pick among these).
     bytes32[] public listingIds;
+    mapping(bytes32 => bool) internal known;
 
     /// @dev Every unit a buyer has paid in, and every unit paid out. The contract's
     ///      balance must be exactly the difference at all times.
@@ -38,7 +41,7 @@ contract MarketplaceHandler is Test {
         buyers.push(makeAddr("buyerC"));
 
         for (uint256 i = 0; i < 4; i++) {
-            listingIds.push(keccak256(abi.encode("listing", i)));
+            catalogIds.push(keccak256(abi.encode("listing", i)));
         }
     }
 
@@ -48,16 +51,20 @@ contract MarketplaceHandler is Test {
 
     function list(uint256 sellerSeed, uint256 idSeed, uint256 price) external {
         address seller = sellers[sellerSeed % sellers.length];
-        bytes32 id = listingIds[idSeed % listingIds.length];
-        (address owner,,) = market.listings(id);
-        if (owner != address(0) && owner != seller) return;
+        bytes32 catalog = catalogIds[idSeed % catalogIds.length];
         price = bound(price, 0, 10_000e6);
         vm.prank(seller);
-        market.registerListing(id, price);
+        market.registerListing(catalog, price);
+        bytes32 id = market.listingIdFor(seller, catalog);
+        if (!known[id]) {
+            known[id] = true;
+            listingIds.push(id);
+        }
     }
 
     function buy(uint256 buyerSeed, uint256 idSeed) external {
         address buyer = buyers[buyerSeed % buyers.length];
+        if (listingIds.length == 0) return;
         bytes32 id = listingIds[idSeed % listingIds.length];
         (address seller, uint256 price, bool active) = market.listings(id);
         if (seller == address(0) || !active || seller == buyer) return;
@@ -73,6 +80,7 @@ contract MarketplaceHandler is Test {
     /// it), then settlement pulls it.
     function buyViaRouter(uint256 buyerSeed, uint256 idSeed) external {
         address buyer = buyers[buyerSeed % buyers.length];
+        if (listingIds.length == 0) return;
         bytes32 id = listingIds[idSeed % listingIds.length];
         (address seller, uint256 price, bool active) = market.listings(id);
         if (seller == address(0) || !active || seller == buyer) return;
@@ -92,6 +100,7 @@ contract MarketplaceHandler is Test {
     /// A zero-value proposal trying to buy a priced listing with whatever is lying around.
     function freeRideViaRouter(uint256 buyerSeed, uint256 idSeed) external {
         address buyer = buyers[buyerSeed % buyers.length];
+        if (listingIds.length == 0) return;
         bytes32 id = listingIds[idSeed % listingIds.length];
         (address seller, uint256 price, bool active) = market.listings(id);
         if (seller == address(0) || !active || seller == buyer || price == 0) return;
@@ -127,6 +136,7 @@ contract MarketplaceHandler is Test {
 
     function delistOne(uint256 sellerSeed, uint256 idSeed) external {
         address seller = sellers[sellerSeed % sellers.length];
+        if (listingIds.length == 0) return;
         bytes32 id = listingIds[idSeed % listingIds.length];
         (address owner,,) = market.listings(id);
         if (owner != seller) return;

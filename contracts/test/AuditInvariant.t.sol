@@ -254,9 +254,10 @@ contract MarketHandler is Test {
     function list(uint256 seed, uint256 price) external {
         price = bound(price, 0, 100e6);
         address seller = address(uint160(0xBEEF00 + (seed % 3)));
-        bytes32 id = keccak256(abi.encode(listingIds.length));
+        bytes32 catalog = keccak256(abi.encode(listingIds.length));
+        bytes32 id = market.listingIdFor(seller, catalog);
         vm.prank(seller);
-        market.registerListing(id, price);
+        market.registerListing(catalog, price);
         listingIds.push(id);
     }
 

@@ -23,7 +23,9 @@ contract SilentReverter {
 /// reverts must not deliver funds, spend allowance, or resolve the intent.
 contract AtomicActionTest is Test {
     uint256 internal constant ONE = 1e6;
-    bytes32 internal constant LISTING = keccak256("agent-payroll-manager");
+    bytes32 internal constant CATALOG = keccak256("agent-payroll-manager");
+    /// @dev Derived from (seller, CATALOG); set in setUp.
+    bytes32 internal LISTING;
 
     address internal root = makeAddr("root");
     address internal manager = makeAddr("manager");
@@ -61,10 +63,12 @@ contract AtomicActionTest is Test {
         treasury.streamAllowance(worker, 500 * ONE, 1);
 
         market = new MarketplacePayments(address(usdc), platform, governor, 2000);
+
+        LISTING = market.listingIdFor(seller, CATALOG);
         vm.prank(governor);
         market.setSettlementRouter(address(router));
         vm.prank(seller);
-        market.registerListing(LISTING, 100 * ONE);
+        market.registerListing(CATALOG, 100 * ONE);
     }
 
     function _buy(uint256 maxPrice) internal view returns (bytes memory) {
@@ -83,7 +87,7 @@ contract AtomicActionTest is Test {
     /// target's error, so no USDC is stranded at the market.
     function test_allowedPurchaseRevertsWhenCallFails() public {
         vm.prank(seller);
-        market.registerListing(LISTING, 120 * ONE);
+        market.registerListing(CATALOG, 120 * ONE);
 
         vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.PriceExceedsMax.selector, 120 * ONE, 100 * ONE));
         router.propose(worker, address(market), 100 * ONE, _buy(100 * ONE));
@@ -108,7 +112,7 @@ contract AtomicActionTest is Test {
     /// stays pending so it can be retried once the call would succeed, or rejected.
     function test_resolveRevertsAndKeepsIntentPendingWhenCallFails() public {
         vm.prank(seller);
-        market.registerListing(LISTING, 200 * ONE);
+        market.registerListing(CATALOG, 200 * ONE);
         (uint256 intentId, Verdict verdict) = router.propose(worker, address(market), 200 * ONE, _buy(200 * ONE));
         assertEq(uint8(verdict), uint8(Verdict.ESCALATE));
 
@@ -127,7 +131,7 @@ contract AtomicActionTest is Test {
 
         // Relisted, the same approval now settles payment and receipt together.
         vm.prank(seller);
-        market.registerListing(LISTING, 200 * ONE);
+        market.registerListing(CATALOG, 200 * ONE);
         vm.prank(manager);
         router.resolve(intentId, true);
         (,,,,, resolved, approved) = router.intents(intentId);
@@ -138,7 +142,7 @@ contract AtomicActionTest is Test {
 
     function test_failedIntentCanStillBeRejected() public {
         vm.prank(seller);
-        market.registerListing(LISTING, 200 * ONE);
+        market.registerListing(CATALOG, 200 * ONE);
         (uint256 intentId,) = router.propose(worker, address(market), 200 * ONE, _buy(200 * ONE));
         vm.prank(seller);
         market.delist(LISTING);
@@ -163,7 +167,7 @@ contract AtomicActionTest is Test {
         value = bound(value, 1, 150 * ONE);
         newPrice = bound(newPrice, value + 1, 10_000 * ONE);
         vm.prank(seller);
-        market.registerListing(LISTING, newPrice);
+        market.registerListing(CATALOG, newPrice);
 
         vm.expectRevert();
         router.propose(worker, address(market), value, _buy(value));
