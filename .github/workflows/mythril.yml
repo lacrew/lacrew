@@ -36,7 +36,7 @@ jobs:
         run: forge install OpenZeppelin/openzeppelin-contracts@v5.3.0 --no-git
       - uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.15"
       - name: Install Mythril
         # setuptools>=81 dropped pkg_resources, which py-evm's `eth` still imports.
         run: pip install "setuptools<81" && pip install mythril==0.24.8
