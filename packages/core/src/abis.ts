@@ -1381,6 +1381,25 @@ export const escalationRouterAbi = [
   },
   {
     "type": "function",
+    "name": "isBoundRecorder",
+    "inputs": [
+      {
+        "name": "account",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bool",
+        "internalType": "bool"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "nextIntentId",
     "inputs": [],
     "outputs": [

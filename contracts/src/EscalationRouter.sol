@@ -90,6 +90,12 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     /// @notice Optional per-node value recorder (falls back to `valueRecorder`).
     mapping(address => IValueRecorder) public valueRecorderOf;
 
+    /// @dev How many recorder slots (global or per-node, rate or value) currently point at an
+    ///      address. A recorder trusts the router as `msg.sender`, so any bound one is off limits
+    ///      as a target for every agent, not just the node it is bound to. Counted rather than
+    ///      flagged because one recorder may serve several nodes.
+    mapping(address => uint256) private _recorderBindings;
+
     /// @dev The action being executed: its target and what treasury paid it. Set only
     ///      around the target call in `_finalizeAction`, so a target reads its own
     ///      payment through `currentSettlement` and nothing else's.
@@ -206,6 +212,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     /// @notice Wire rate-limit recorder.
     function setRateRecorder(address rateRecorder_) external {
         _onlyGovernorOrBootstrap();
+        _rebind(address(rateRecorder), rateRecorder_);
         rateRecorder = IRateRecorder(rateRecorder_);
         emit RateRecorderUpdated(rateRecorder_);
     }
@@ -230,6 +237,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     function setNodeRateRecorder(address node, address rateRecorder_) external {
         _onlyGovernorOrBootstrap();
         if (node == address(0)) revert ZeroAddress();
+        _rebind(address(rateRecorderOf[node]), rateRecorder_);
         rateRecorderOf[node] = IRateRecorder(rateRecorder_);
         emit NodeRateRecorderUpdated(node, rateRecorder_);
     }
@@ -237,6 +245,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     /// @notice Wire the value recorder charged with every settled spend.
     function setValueRecorder(address valueRecorder_) external {
         _onlyGovernorOrBootstrap();
+        _rebind(address(valueRecorder), valueRecorder_);
         valueRecorder = IValueRecorder(valueRecorder_);
         emit ValueRecorderUpdated(valueRecorder_);
     }
@@ -246,8 +255,20 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     function setNodeValueRecorder(address node, address valueRecorder_) external {
         _onlyGovernorOrBootstrap();
         if (node == address(0)) revert ZeroAddress();
+        _rebind(address(valueRecorderOf[node]), valueRecorder_);
         valueRecorderOf[node] = IValueRecorder(valueRecorder_);
         emit NodeValueRecorderUpdated(node, valueRecorder_);
+    }
+
+    /// @notice Whether `account` is bound as any rate or value recorder, global or per-node.
+    function isBoundRecorder(address account) public view returns (bool) {
+        return _recorderBindings[account] != 0;
+    }
+
+    function _rebind(address oldRecorder, address newRecorder) private {
+        if (oldRecorder == newRecorder) return;
+        if (oldRecorder != address(0)) _recorderBindings[oldRecorder]--;
+        if (newRecorder != address(0)) _recorderBindings[newRecorder]++;
     }
 
     /// @notice Propose an action; ALLOW executes spend+call, ESCALATE creates an intent, DENY reverts.
@@ -259,7 +280,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     ) external nonReentrant returns (uint256 intentId, Verdict verdict) {
         IOrgRegistry.Node memory agentNode = orgRegistry.getNode(agent);
         if (!agentNode.active) revert InactiveAgent(agent);
-        _requireUnprotectedTarget(agent, target, value, data.length);
+        _requireUnprotectedTarget(target, value, data.length);
         uint256 scopeMask = _requireValidSession(agent, target, value);
         // Count this propose against the key's rate limit (no-op unless wired and
         // the key has one). Reverts here roll back the count, so only a propose
@@ -543,7 +564,6 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     ///      that trust the router as `msg.sender`, whatever the policy says. Checked
     ///      at propose so no such intent can even be created for a parent to approve.
     function _requireUnprotectedTarget(
-        address agent,
         address target,
         uint256 value,
         uint256 dataLength
@@ -552,8 +572,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         if (target == address(0)) return;
         if (
             target == address(this) || target == address(treasury) || target == address(sessionRegistry)
-                || target == address(rateRecorder) || target == address(rateRecorderOf[agent])
-                || target == address(valueRecorder) || target == address(valueRecorderOf[agent])
+                || isBoundRecorder(target)
         ) {
             revert ProtectedTarget(target);
         }
