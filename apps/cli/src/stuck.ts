@@ -15,8 +15,20 @@ export interface StuckInput {
 export function redact(text: string): string {
   return text
     .replace(/\b0x[0-9a-fA-F]{64}\b/g, "[redacted-key]")
+    .replace(/\b(?:https?|wss?):\/\/[^\s"'<>)\]]+/gi, redactUrl)
     .replace(/\b(\w*(?:KEY|SECRET|TOKEN|PASSWORD)\w*)=\S+/gi, "$1=[redacted]")
+    .replace(/\b(Authorization:\s*)(?:Bearer\s+|Basic\s+)?[A-Za-z0-9._~+/=-]{16,}/gi, "$1[redacted]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi, "Bearer [redacted]")
     .replace(/(\w+:\/\/)[^\s/@]+@/g, "$1[redacted]@");
+}
+
+/** Keep scheme and host only (path, query and credentials may hold an API key); local URLs keep their port. */
+function redactUrl(url: string): string {
+  const m = /^(\w+:\/\/)(?:[^\s/@?#]*@)?(\[[^\]]*\]|[^\s/:?#]*)(:\d+)?/.exec(url);
+  if (!m) return "[redacted-url]";
+  const [, scheme, host, port] = m;
+  const local = host === "localhost" || host === "127.0.0.1";
+  return `${scheme}${host}${local ? (port ?? "") : ""}`;
 }
 
 /** The command reached: names only, never flags or their values (they may hold keys or URLs). */

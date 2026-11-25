@@ -58,6 +58,8 @@ curl -X POST -H 'content-type: application/json' -d '{}' http://127.0.0.1:8788/t
 pnpm --filter @lacrew/cli exec tsx src/index.ts approve 1 --rpc http://127.0.0.1:8545   # → "verdict": "ALLOW"
 ```
 
+If a command fails, the CLI ends with a `Stuck? Tell us` link that opens a prefilled issue (secrets and RPC URL paths are redacted); set `LACREW_NO_STUCK_LINK=1` to hide it.
+
 Stop the chain with `pnpm local:stop`. The Anvil keys in `.env` are public test keys: never use them on a funded network.
 
 ### By hand
