@@ -248,6 +248,11 @@ export function reparent(ctx: Ctx, account_: Address, newParent_: Address): void
   if (childrenAt(state, newParent).length >= MAX_CHILDREN) {
     throw new SimRevert("TooManyChildren", { parent: newParent });
   }
+  // The deepest seat of the moved subtree must still sit at or above MAX_DEPTH.
+  const newDepth = depthOf(state, newParent) + 1;
+  if (newDepth > MAX_DEPTH || reachesBelow(state, account, MAX_DEPTH - newDepth)) {
+    throw new SimRevert("MaxDepthExceeded", { account });
+  }
 
   removeFromParent(state, oldParent, account);
   state.nodes[account]!.parent = newParent;
@@ -282,6 +287,13 @@ function depthOf(state: OrgRegistryState, node: Address): number {
     cursor = nodeAt(state, cursor).parent;
   }
   return d;
+}
+
+/** True if `node` has a descendant more than `levels` below it (`_reachesBelow`). */
+function reachesBelow(state: OrgRegistryState, node: Address, levels: number): boolean {
+  const kids = state.children[node] ?? [];
+  if (levels === 0) return kids.length !== 0;
+  return kids.some((kid) => reachesBelow(state, kid, levels - 1));
 }
 
 /** Swap-and-pop, so sibling order matches the contract's after a removal. */
