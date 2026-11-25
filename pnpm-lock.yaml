@@ -333,7 +333,7 @@ importers:
     devDependencies:
       '@langchain/core':
         specifier: ^1.2.3
-        version: 1.5.0(@opentelemetry/api@1.9.1)(ws@8.21.3)
+        version: 1.5.1(@opentelemetry/api@1.9.1)(ws@8.21.3)
       '@types/node':
         specifier: ^26.0.0
         version: 26.6.6
@@ -1449,8 +1449,8 @@ packages:
   '@jridgewell/trace-mapping@0.3.31':
     resolution: {integrity: sha512-zzNR+SdQSDJzc8joaeP8QQoCQr8NuYx2dIIytl1QeBEZHJ9uW6hebsrYgbz8hJwUQao3TWCMtmfV8Nu1twOLAw==}
 
-  '@langchain/core@1.5.0':
-    resolution: {integrity: sha512-MhkmHmiBr5iNNJNt2OV6JE91953fIVwI4/krM8De4sKjBZTs/aXxAk3iRJ9i7fuUzd4qFHTcUf6e7Fmtp4B9ug==}
+  '@langchain/core@1.5.1':
+    resolution: {integrity: sha512-vPtTZGYxzpJBDJ4BHkPJZpC4+ceAFl+Fs1YCXy2VQiUsPRvNEJmXIE/sJLza5MroKRltPLMfJ/qIsSPHqUBr1w==}
     engines: {node: '>=20'}
 
   '@mdx-js/mdx@3.1.1':
@@ -4969,7 +4969,7 @@ snapshots:
       '@jridgewell/resolve-uri': 3.1.2
       '@jridgewell/sourcemap-codec': 1.6.0
 
-  '@langchain/core@1.5.0(@opentelemetry/api@1.9.1)(ws@8.21.3)':
+  '@langchain/core@1.5.1(@opentelemetry/api@1.9.1)(ws@8.21.3)':
     dependencies:
       '@cfworker/json-schema': 4.1.6
       '@standard-schema/spec': 1.1.0
