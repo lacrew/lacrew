@@ -11,6 +11,7 @@
   "scripts": {
     "local": "node scripts/local-setup.mjs",
     "local:stop": "node scripts/local-setup.mjs --stop",
+    "rehearse:fork": "node scripts/fork-rehearsal.mjs",
     "build": "turbo run build",
     "dev": "turbo run dev --filter=@lacrew/orchestrator",
     "dev:sandbox": "pnpm --filter @lacrew/orchestrator dev:sandbox",

@@ -161,6 +161,14 @@ loop, but runs the same script with the same assertions.
   and the real Safe factories. Rehearse the whole release procedure (§5), including the
   incident playbook (§3.6) and a v1→v1.1 migration (deploy a new stack, move the treasury).
 - **Exit:** every §5 assertion passes. The migration moves 100% of a funded treasury.
+- **Automated today:** `pnpm rehearse:fork` (`scripts/fork-rehearsal.mjs`) forks Ethereum Sepolia
+  and Base Sepolia into local Anvils, runs `DeployOrg` and `DeployProtocol` with `--broadcast`
+  from a freshly generated, fork-funded key, then re-reads the chain with `cast`: roots and
+  governor on every contract, the Treasury / EscalationRouter / SessionRegistry / RateLimitPolicy
+  wiring, zero policy `admin`, and that the deployer is refused by every bootstrap setter. The
+  `Fork rehearsal` workflow runs it on changes to `contracts/src`, `contracts/script` and
+  `contracts/foundry.toml`. Still manual: the Base mainnet fork with real USDC, the incident
+  playbook and the v1→v1.1 migration.
 
 ### Stage 1: Ethereum Sepolia (F0.8)
 

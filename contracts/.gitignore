@@ -9,6 +9,8 @@ out/
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
+/broadcast/DeployOrg.s.sol/
+/broadcast/DeployProtocol.s.sol/
 /broadcast/**/dry-run/
 
 # Docs
