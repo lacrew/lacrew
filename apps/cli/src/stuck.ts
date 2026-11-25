@@ -17,7 +17,10 @@ export function redact(text: string): string {
     .replace(/\b0x[0-9a-fA-F]{64}\b/g, "[redacted-key]")
     .replace(/\b(?:https?|wss?):\/\/[^\s"'<>)\]]+/gi, redactUrl)
     .replace(/\b(\w*(?:KEY|SECRET|TOKEN|PASSWORD)\w*)=\S+/gi, "$1=[redacted]")
-    .replace(/\b(Authorization:\s*)(?:Bearer\s+|Basic\s+)?[A-Za-z0-9._~+/=-]{16,}/gi, "$1[redacted]")
+    .replace(
+      /\b(Authorization:\s*)(?:Bearer\s+|Basic\s+)?[A-Za-z0-9._~+/=-]{16,}/gi,
+      "$1[redacted]",
+    )
     .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/gi, "Bearer [redacted]")
     .replace(/(\w+:\/\/)[^\s/@]+@/g, "$1[redacted]@");
 }
