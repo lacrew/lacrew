@@ -9,6 +9,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createOnchainClient, type OnchainLacrewClient } from "@lacrew/sdk";
 import { CrewRuntime, createEphemeralSession } from "@lacrew/orchestrator";
+import { captureStderr, stuckLine } from "./stuck.js";
 import { PROTOCOL_NAME, PROTOCOL_VERSION, getAddresses, ANVIL_CHAIN_ID } from "@lacrew/core";
 import { http, parseEther, isAddress } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -920,10 +921,24 @@ Env:
   }
 }
 
+const stderrCapture = captureStderr();
+
 main()
   .catch((err) => {
     console.error(err);
     process.exitCode = 1;
+  })
+  // On any failure, end with one link to a prefilled issue (LACREW_NO_STUCK_LINK=1 hides it).
+  .then(() => {
+    if (process.exitCode && !process.env.LACREW_NO_STUCK_LINK) {
+      console.error(
+        stuckLine({
+          argv: process.argv.slice(2),
+          errorLines: stderrCapture.lines,
+          cliVersion: PROTOCOL_VERSION,
+        }),
+      );
+    }
   })
   // After the command, failed or not: a transaction it sent was paid for.
   .then(() => flushGasReports());
