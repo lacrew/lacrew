@@ -36,3 +36,6 @@ pnpm-debug.log*
 
 # Local runtime state (deployments, indexer store)
 .lacrew/
+
+# One-command setup state (Anvil pid + log)
+.local/
