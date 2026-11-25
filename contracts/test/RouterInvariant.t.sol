@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {StdInvariant} from "forge-std/StdInvariant.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {Treasury} from "../src/Treasury.sol";
@@ -127,7 +128,7 @@ contract RouterHandler is Test {
 }
 
 /// @dev Invariants over the full propose → escalate → resolve → spend path.
-contract RouterInvariantTest is StdInvariant, Test {
+contract RouterInvariantTest is StdInvariant, SessionWiring {
     uint256 internal constant ONE = 1e6;
     uint256 internal constant TOTAL_DEPOSIT = 100_000 * ONE;
 
@@ -163,6 +164,12 @@ contract RouterInvariantTest is StdInvariant, Test {
         PolicyStack stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         usdc = new MockUSDC();
         treasury = new Treasury(address(registry), address(usdc), address(router));
         router.setTreasury(address(treasury));
@@ -175,6 +182,12 @@ contract RouterInvariantTest is StdInvariant, Test {
         handler = new RouterHandler(
             router, treasury, usdc, registry, root, manager, worker, goodTarget, badTarget
         );
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _issueSessionsTo(router.sessionRegistry(), root, address(handler), agents_);
+        }
         targetContract(address(handler));
     }
 

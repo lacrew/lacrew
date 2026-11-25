@@ -43,6 +43,8 @@ export const NOT_SIMULATED: Record<string, string> = {
     "Unreachable since setGovernor drops the admin: once a governor is bound nobody passes the admin check that precedes this one, so a second bind reverts NotAuthorized.",
   "WhitelistPolicy.GovernorAlreadySet":
     "Unreachable since setGovernor drops the admin: once a governor is bound nobody passes the admin check that precedes this one, so a second bind reverts NotAuthorized.",
+  "EscalationRouter.SessionRegistryNotSet":
+    "Raised only by a router that never had a registry wired. Every org the scenarios deploy wires one at genesis and setSessionRegistry cannot clear it, so no scenario reaches it; the kernel unit test and the Foundry regression test (SessionRegistryRequired.t.sol) cover it.",
   "EscalationRouter.setValueRecorder":
     "Binds a CumulativeValuePolicy, which the sandbox does not model; a sandbox org records no settled value. TODO: mirror the module and the router's value recording in the kernel.",
   "EscalationRouter.setNodeValueRecorder":

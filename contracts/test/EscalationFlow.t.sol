@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {SpendCapPolicy} from "../src/policies/SpendCapPolicy.sol";
@@ -10,7 +11,7 @@ import {PolicyStack} from "../src/policies/PolicyStack.sol";
 import {IOrgRegistry} from "../src/interfaces/IOrgRegistry.sol";
 import {IPolicyModule, Verdict} from "../src/interfaces/IPolicyModule.sol";
 
-contract EscalationFlowTest is Test {
+contract EscalationFlowTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal manager = makeAddr("manager");
     address internal worker = makeAddr("worker");
@@ -44,6 +45,12 @@ contract EscalationFlowTest is Test {
         stack = new PolicyStack(modules);
 
         router = new EscalationRouter(address(registry), address(stack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
     }
 
     function test_allowsUnderCapOnWhitelist() public {

@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {RateLimitPolicy} from "../src/policies/RateLimitPolicy.sol";
@@ -29,7 +30,7 @@ contract ReentrantTarget {
     }
 }
 
-contract RouterReentrancyTest is Test {
+contract RouterReentrancyTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal worker = makeAddr("worker");
 
@@ -44,6 +45,11 @@ contract RouterReentrancyTest is Test {
 
         rate = new RateLimitPolicy(1, 1 hours);
         router = new EscalationRouter(address(registry), address(rate));
+        {
+            address[] memory agents_ = new address[](1);
+            agents_[0] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         router.setRateRecorder(address(rate));
         rate.setRecorder(address(router));
         target = new ReentrantTarget(router, rate, worker);

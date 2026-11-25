@@ -609,6 +609,7 @@ export class LacrewClient {
       effectiveQuorumHumanYes: clamp(1n, totalHumanVotingPower),
       votingPeriod: 3 * 24 * 3600,
       highTierTimelock: 24 * 3600,
+      lowTierDelay: 24 * 3600,
       unanimityFastPath: true,
     };
   }

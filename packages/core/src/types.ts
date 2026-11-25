@@ -98,6 +98,8 @@ export interface GovernanceConfig {
   votingPeriod?: number;
   /** High-tier delay in seconds after the voting deadline. May be zero. */
   highTierTimelock?: number;
+  /** Low-tier delay in seconds after proposing (`eta = proposedAt + lowTierDelay`). May be zero. */
+  lowTierDelay?: number;
   /** When true, unanimous human yes-weight executes high tier without waiting. */
   unanimityFastPath?: boolean;
 }

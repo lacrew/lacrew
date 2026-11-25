@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
+import {SessionWiring} from "./utils/SessionWiring.sol";
 import {OrgRegistry} from "../src/OrgRegistry.sol";
 import {EscalationRouter} from "../src/EscalationRouter.sol";
 import {SpendCapPolicy} from "../src/policies/SpendCapPolicy.sol";
@@ -14,7 +15,7 @@ import {IPolicyModule, Verdict} from "../src/interfaces/IPolicyModule.sol";
 /// A node bound to its own RateLimitPolicy needs its executed actions counted
 /// in that module's windows — the global recorder never sees them, so without
 /// the per-node recorder a custom rate limit would silently never trip.
-contract PerNodeRateRecorderTest is Test {
+contract PerNodeRateRecorderTest is SessionWiring {
     address internal root = makeAddr("root");
     address internal manager = makeAddr("manager");
     address internal worker = makeAddr("worker");
@@ -55,6 +56,12 @@ contract PerNodeRateRecorderTest is Test {
         customStack = new PolicyStack(customMods);
 
         router = new EscalationRouter(address(registry), address(defaultStack));
+        {
+            address[] memory agents_ = new address[](2);
+            agents_[0] = manager;
+            agents_[1] = worker;
+            _wireSessions(router, registry, root, agents_);
+        }
         router.setRateRecorder(address(globalRate));
         globalRate.setRecorder(address(router));
         customRate.setRecorder(address(router));

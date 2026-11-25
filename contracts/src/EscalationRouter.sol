@@ -18,8 +18,9 @@ import {SessionScopes} from "./SessionScopes.sol";
 ///         Only active nodes resolve, and only for agents that are still active; the
 ///         org root covers an approver that has been deactivated or removed.
 /// @dev On ALLOW (propose or final resolve), optionally spends allowance and calls `target`.
-///      When `sessionRegistry` is set, `propose` must be signed by a valid session key for `agent`
-///      (or by `agent` itself for future AA EOAs).
+///      `propose` must be signed by a valid session key for `agent` (or by `agent` itself for
+///      future AA EOAs); a caller that is not the agent is refused until a SessionRegistry is wired,
+///      and the registry can be replaced but never cleared.
 ///
 ///      Settlement has two shapes, chosen by whether the action carries calldata:
 ///      - **Payment** (`value > 0`, empty `data`): the treasury transfers `value` to `target`.
@@ -147,6 +148,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     error SessionTargetDenied(address agent, address target, address allowedTarget);
     error SessionScopeDenied(address agent, uint256 required, uint256 granted);
     error SessionTimeWindowDenied(address agent);
+    error SessionRegistryNotSet();
     /// @dev The router is `Treasury.spender`, `SessionRegistry.escalationRouter` and the
     ///      bound recorder of its rate and value modules. Letting an agent aim a policy-admitted
     ///      call at one of those would lend it the router's own authority. The treasury's token
@@ -217,9 +219,11 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         emit RateRecorderUpdated(rateRecorder_);
     }
 
-    /// @notice Wire SessionRegistry so propose requires a valid session key.
+    /// @notice Wire SessionRegistry so propose requires a valid session key. It can be
+    ///         replaced but never cleared: a zero registry would leave no session to check.
     function setSessionRegistry(address sessionRegistry_) external {
         _onlyGovernorOrBootstrap();
+        if (sessionRegistry_ == address(0)) revert ZeroAddress();
         sessionRegistry = SessionRegistry(sessionRegistry_);
         emit SessionRegistryUpdated(sessionRegistry_);
     }
@@ -519,17 +523,17 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         }
     }
 
-    /// @dev Unset registry = unit-test bootstrap. Otherwise: valid session + scope
-    ///      + maxValue + target. Returns the granted scope mask so the caller can
-    ///      gate settlement separately; `type(uint256).max` when the registry is
-    ///      unset or the agent is acting for itself (no session to narrow it).
+    /// @dev The agent acting for itself needs no session. Anyone else needs a wired registry
+    ///      and a valid session + scope + maxValue + target. Returns the granted scope mask so
+    ///      the caller can gate settlement separately; `type(uint256).max` when the agent is
+    ///      acting for itself (no session to narrow it).
     function _requireValidSession(address agent, address target, uint256 value)
         private
         view
         returns (uint256 scopeMask)
     {
-        if (address(sessionRegistry) == address(0)) return type(uint256).max;
         if (msg.sender == agent) return type(uint256).max;
+        if (address(sessionRegistry) == address(0)) revert SessionRegistryNotSet();
         bool valid;
         uint256 maxValue;
         address allowedTarget;
