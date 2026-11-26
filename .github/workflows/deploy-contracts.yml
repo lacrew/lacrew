@@ -1,0 +1,279 @@
+name: Deploy contracts
+
+# Release procedure of docs/deployment-plan.md §5, run from the Actions tab for a
+# public testnet: build, dry run, broadcast with --verify, check the sources on the
+# explorer, write contracts/deployments/<chainId>.json, open a PR with it.
+# Click-path setup and checking: docs/deploy-runbook.md.
+#
+# Secrets (Settings → Secrets and variables → Actions), never printed by this file:
+#   DEPLOYER_PRIVATE_KEY   fresh testnet-only key (0x…), funded from a faucet
+#   SEPOLIA_RPC_URL        Ethereum Sepolia RPC (needed for network=sepolia)
+#   BASE_SEPOLIA_RPC_URL   Base Sepolia RPC (needed for network=base-sepolia)
+#   ETHERSCAN_API_KEY      Etherscan v2 key, verifies on both chains
+# Optional repository variables: MARKETPLACE_GOVERNOR, PLATFORM_FEE_RECIPIENT
+# (default: the deployer address, testnet only).
+#
+# Mainnet is not offered here: the plan keeps a hardware-wallet signer in the loop.
+
+on:
+  workflow_dispatch:
+    inputs:
+      network:
+        description: Public testnet to deploy to
+        type: choice
+        required: true
+        options:
+          - sepolia
+          - base-sepolia
+      ref:
+        description: Branch or tag to deploy (default main)
+        type: string
+        required: false
+        default: main
+
+permissions:
+  contents: write
+  pull-requests: write
+
+# One deploy per network at a time; never cancel a run that may have broadcast.
+concurrency:
+  group: deploy-contracts-${{ inputs.network }}
+  cancel-in-progress: false
+
+env:
+  FOUNDRY_VERSION: v1.9.0
+  # Anvil account #0 (public, well known): refused as the deployer.
+  ANVIL_DEPLOYER: "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266"
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.network }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Select network
+        id: net
+        env:
+          NETWORK: ${{ inputs.network }}
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+        run: |
+          case "$NETWORK" in
+            sepolia)      id=11155111; rpc="$SEPOLIA_RPC_URL";      name=SEPOLIA_RPC_URL ;;
+            base-sepolia) id=84532;    rpc="$BASE_SEPOLIA_RPC_URL"; name=BASE_SEPOLIA_RPC_URL ;;
+            *) echo "::error::unknown network $NETWORK"; exit 1 ;;
+          esac
+          if [ -z "$rpc" ]; then
+            echo "::error::Secret $name is not set. Add it under Settings → Secrets and variables → Actions (docs/deploy-runbook.md, step 1)."
+            exit 1
+          fi
+          echo "::add-mask::$rpc"
+          echo "chain_id=$id" >> "$GITHUB_OUTPUT"
+
+      - name: Check the other secrets exist
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+        run: |
+          for n in DEPLOYER_PRIVATE_KEY ETHERSCAN_API_KEY; do
+            if [ -z "${!n}" ]; then
+              echo "::error::Secret $n is not set (docs/deploy-runbook.md, step 1)."
+              exit 1
+            fi
+          done
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: ${{ env.FOUNDRY_VERSION }}
+
+      - name: Install pinned contract deps
+        working-directory: contracts
+        run: bash script/install-libs.sh
+
+      - name: Build
+        working-directory: contracts
+        run: forge build
+
+      - name: Record the toolchain
+        working-directory: contracts
+        run: bash script/build-record.sh | tee "$RUNNER_TEMP/build-record.json"
+
+      - name: Resolve the deployer and role addresses
+        id: who
+        env:
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          GOVERNOR_VAR: ${{ vars.MARKETPLACE_GOVERNOR }}
+          FEE_VAR: ${{ vars.PLATFORM_FEE_RECIPIENT }}
+        run: |
+          deployer=$(cast wallet address --private-key "$DEPLOYER_PRIVATE_KEY")
+          if [ "${deployer,,}" = "${ANVIL_DEPLOYER,,}" ]; then
+            echo "::error::DEPLOYER_PRIVATE_KEY is the public Anvil key. Generate a fresh testnet key (docs/deploy-runbook.md, step 1)."
+            exit 1
+          fi
+          echo "deployer=$deployer" >> "$GITHUB_OUTPUT"
+          echo "governor=${GOVERNOR_VAR:-$deployer}" >> "$GITHUB_OUTPUT"
+          echo "fee_recipient=${FEE_VAR:-$deployer}" >> "$GITHUB_OUTPUT"
+          echo "Deployer address: $deployer"
+
+      - name: Check the deployer balance
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          NETWORK: ${{ inputs.network }}
+          DEPLOYER: ${{ steps.who.outputs.deployer }}
+        run: |
+          rpc="$SEPOLIA_RPC_URL"; [ "$NETWORK" = base-sepolia ] && rpc="$BASE_SEPOLIA_RPC_URL"
+          got=$(cast chain-id --rpc-url "$rpc")
+          if [ "$got" != "${{ steps.net.outputs.chain_id }}" ]; then
+            echo "::error::RPC reports chain id $got, expected ${{ steps.net.outputs.chain_id }} for $NETWORK."
+            exit 1
+          fi
+          bal=$(cast balance "$DEPLOYER" --rpc-url "$rpc" --ether)
+          echo "Deployer balance: $bal ETH"
+          if [ "$(cast balance "$DEPLOYER" --rpc-url "$rpc")" = "0" ]; then
+            echo "::error::Deployer $DEPLOYER has no ETH on $NETWORK. Fund it from a faucet and re-run."
+            exit 1
+          fi
+
+      # Plan §5 step 3: nothing is sent. Fails here if a script guard rejects the config.
+      - name: Dry run
+        working-directory: contracts
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          NETWORK: ${{ inputs.network }}
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          HUMAN_ROOT: ${{ steps.who.outputs.deployer }}
+          DEPLOY_MOCK_ASSET: "true"
+          DEFAULT_SPEND_CAP: "50000000"
+        run: |
+          rpc="$SEPOLIA_RPC_URL"; [ "$NETWORK" = base-sepolia ] && rpc="$BASE_SEPOLIA_RPC_URL"
+          forge script script/DeployOrg.s.sol:DeployOrg \
+            --rpc-url "$rpc" --private-key "$DEPLOYER_PRIVATE_KEY"
+
+      # Plan §5 step 4: --slow sends one tx at a time, --verify submits sources.
+      - name: Deploy the org stack
+        working-directory: contracts
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          NETWORK: ${{ inputs.network }}
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          HUMAN_ROOT: ${{ steps.who.outputs.deployer }}
+          DEPLOY_MOCK_ASSET: "true"
+          DEFAULT_SPEND_CAP: "50000000"
+        run: |
+          rpc="$SEPOLIA_RPC_URL"; [ "$NETWORK" = base-sepolia ] && rpc="$BASE_SEPOLIA_RPC_URL"
+          forge script script/DeployOrg.s.sol:DeployOrg \
+            --rpc-url "$rpc" --private-key "$DEPLOYER_PRIVATE_KEY" \
+            --broadcast --slow --verify --retries 10 --delay 15
+
+      - name: Read the deployed asset
+        id: asset
+        working-directory: contracts
+        run: |
+          asset=$(jq -r '[.transactions[] | select(.contractName=="MockUSDC")][0].contractAddress' \
+            "broadcast/DeployOrg.s.sol/${{ steps.net.outputs.chain_id }}/run-latest.json")
+          echo "asset=$asset" >> "$GITHUB_OUTPUT"
+
+      # MarketplacePayments settles in the org's asset, so it reuses that MockUSDC.
+      - name: Deploy MarketplacePayments
+        working-directory: contracts
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BASE_SEPOLIA_RPC_URL: ${{ secrets.BASE_SEPOLIA_RPC_URL }}
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          NETWORK: ${{ inputs.network }}
+          DEPLOYER_PRIVATE_KEY: ${{ secrets.DEPLOYER_PRIVATE_KEY }}
+          ASSET: ${{ steps.asset.outputs.asset }}
+          MARKETPLACE_GOVERNOR: ${{ steps.who.outputs.governor }}
+          PLATFORM_FEE_RECIPIENT: ${{ steps.who.outputs.fee_recipient }}
+        run: |
+          rpc="$SEPOLIA_RPC_URL"; [ "$NETWORK" = base-sepolia ] && rpc="$BASE_SEPOLIA_RPC_URL"
+          forge script script/DeployProtocol.s.sol:DeployProtocol \
+            --rpc-url "$rpc" --private-key "$DEPLOYER_PRIVATE_KEY" \
+            --broadcast --slow --verify --retries 10 --delay 15
+
+      # Independent of forge's own --verify exit status: ask the explorer for each
+      # created address and fail the run if any has no source.
+      - name: Check sources on the explorer
+        working-directory: contracts
+        env:
+          ETHERSCAN_API_KEY: ${{ secrets.ETHERSCAN_API_KEY }}
+          CHAIN_ID: ${{ steps.net.outputs.chain_id }}
+        run: |
+          fail=0
+          for s in DeployOrg DeployProtocol; do
+            f="broadcast/$s.s.sol/$CHAIN_ID/run-latest.json"
+            jq -r '.transactions[] | select(.transactionType=="CREATE") | "\(.contractName) \(.contractAddress)"' "$f" |
+            while read -r name addr; do
+              src=""
+              for i in 1 2 3 4 5 6; do
+                src=$(curl -fsS "https://api.etherscan.io/v2/api?chainid=$CHAIN_ID&module=contract&action=getsourcecode&address=$addr&apikey=$ETHERSCAN_API_KEY" | jq -r '.result[0].SourceCode // ""')
+                [ -n "$src" ] && break
+                sleep 10
+              done
+              if [ -n "$src" ]; then echo "verified   $name $addr"; else echo "::error::not verified: $name $addr"; echo 1 > "$RUNNER_TEMP/unverified"; fi
+            done
+          done
+          if [ -f "$RUNNER_TEMP/unverified" ]; then exit 1; fi
+
+      - name: Keep the broadcast receipts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: broadcast-${{ inputs.network }}-${{ github.run_id }}
+          path: contracts/broadcast/**/${{ steps.net.outputs.chain_id }}/run-latest.json
+          if-no-files-found: ignore
+
+      - name: Write the addresses file
+        run: |
+          node scripts/write-deployment-record.mjs "${{ steps.net.outputs.chain_id }}" \
+            --build-record "$RUNNER_TEMP/build-record.json"
+
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Plan §5 step 6: @lacrew/core resolves the new addresses.
+      - name: Sync @lacrew/core
+        run: pnpm --filter @lacrew/core sync-abis
+
+      - name: Open the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NETWORK: ${{ inputs.network }}
+          CHAIN_ID: ${{ steps.net.outputs.chain_id }}
+          DEPLOYER: ${{ steps.who.outputs.deployer }}
+        run: |
+          branch="deploy/$NETWORK-${{ github.run_id }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -f "contracts/deployments/$CHAIN_ID.json" \
+            "packages/core/deployments/$CHAIN_ID.json" \
+            packages/core/src/deployments.generated.ts
+          git commit -m "chore: record the $NETWORK deployment ($CHAIN_ID)"
+          git push origin "$branch"
+          cat > "$RUNNER_TEMP/body.md" <<EOF
+          Addresses from the [deploy run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}).
+
+          - Network: $NETWORK (chain id $CHAIN_ID)
+          - Source ref: ${{ inputs.ref }} @ ${{ github.sha }}
+          - Deployer / human root: \`$DEPLOYER\`
+          - Sources verified on the explorer; the run's "Check sources on the explorer" step lists each address.
+          - Broadcast receipts: artifact \`broadcast-$NETWORK-${{ github.run_id }}\` on the run.
+
+          Still open from docs/deployment-plan.md §5: the smoke test (step 7) and the lacrew.xyz/protocol page.
+          EOF
+          gh pr create --base "${{ github.event.repository.default_branch }}" --head "$branch" \
+            --title "chore: record the $NETWORK deployment" --body-file "$RUNNER_TEMP/body.md"
