@@ -1,0 +1,52 @@
+name: Fork rehearsal
+
+# Stage 0 of docs/deployment-plan.md: the real DeployOrg and DeployProtocol
+# scripts against Anvil forks of Ethereum Sepolia and Base Sepolia, then an
+# independent read-back of owners, governor and wiring. Nothing is broadcast to
+# a public chain and no key is used: the deployer is generated per run and
+# funded on the fork. Path-filtered to contract changes; it needs the public
+# testnet RPCs, so it is a separate workflow rather than a job in ci.yml.
+
+on:
+  pull_request:
+    paths:
+      - "contracts/src/**"
+      - "contracts/script/**"
+      - "contracts/foundry.toml"
+      - "scripts/fork-rehearsal.mjs"
+      - ".github/workflows/fork-rehearsal.yml"
+  push:
+    branches: [main]
+    paths:
+      - "contracts/src/**"
+      - "contracts/script/**"
+      - "contracts/foundry.toml"
+      - "scripts/fork-rehearsal.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rehearse:
+    name: Rehearse deploy on Sepolia and Base Sepolia forks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+        with:
+          version: v1.9.0
+      - name: Install pinned contract deps
+        working-directory: contracts
+        run: bash script/install-libs.sh
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+      # Override with repository secrets to use a private RPC; the defaults are public.
+      - name: Rehearse
+        env:
+          SEPOLIA_FORK_URL: ${{ secrets.SEPOLIA_FORK_URL }}
+          BASE_SEPOLIA_FORK_URL: ${{ secrets.BASE_SEPOLIA_FORK_URL }}
+        run: node scripts/fork-rehearsal.mjs
