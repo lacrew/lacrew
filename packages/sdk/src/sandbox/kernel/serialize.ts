@@ -8,6 +8,7 @@
  * left as they are; ids used as keys stay strings on both sides.
  */
 
+import { backfillSeatSnapshots } from "./governance.js";
 import type { World } from "./world.js";
 
 export type JsonValue =
@@ -59,5 +60,6 @@ export function deserializeWorld(json: JsonValue): World {
   if (world === null || typeof world !== "object" || world.version !== 1) {
     throw new Error("not a sandbox world this kernel can read (expected version 1)");
   }
+  backfillSeatSnapshots(world.governance);
   return world;
 }

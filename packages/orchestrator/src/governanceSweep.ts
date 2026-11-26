@@ -19,19 +19,14 @@
  * high-tier one by human weight alone. Agent seats review a high-tier proposal;
  * however many of them vote no, they cannot defeat it. Both tiers wait out
  * their `eta` (the high-tier timelock or the low-tier delay) unless every
- * seated human has voted yes.
+ * human seated when the proposal was created has voted yes.
+ *
+ * The quorum and the unanimity bar come from the proposal's own snapshot,
+ * the values `execute()` gates on; the live governance config would drift
+ * from them as soon as a seat or a quorum changed after the proposal.
  */
 
 import type { GovernanceProposal } from "@lacrew/core";
-
-/** The slice of GovernanceConfig the sweep decision needs. */
-export interface SweepConfig {
-  /** Seat-clamped quorums — what `execute()` actually gates on. */
-  effectiveQuorumYes?: string;
-  effectiveQuorumHumanYes?: string;
-  totalHumanVotingPower?: string;
-  unanimityFastPath?: boolean;
-}
 
 export type SweepDecision =
   | { execute: true; via: "timelock_elapsed" | "unanimity" | "quorum" }
@@ -46,11 +41,7 @@ export type SweepDecision =
         | "config_unreadable";
     };
 
-export function decideAutoExecute(
-  p: GovernanceProposal,
-  config: SweepConfig,
-  nowSeconds: number,
-): SweepDecision {
+export function decideAutoExecute(p: GovernanceProposal, nowSeconds: number): SweepDecision {
   if (p.state !== "active") return { execute: false, reason: "not_active" };
 
   const lapsed = p.deadline > 0 && nowSeconds > p.deadline;
@@ -75,17 +66,15 @@ export function decideAutoExecute(
   // A lapsed ballot that is not carried: execute() would finalize it as Defeated.
   if (lapsed && !carried) return { execute: false, reason: "would_defeat" };
 
-  const quorum = high ? config.effectiveQuorumHumanYes : config.effectiveQuorumYes;
-  if (quorum === undefined) return { execute: false, reason: "config_unreadable" };
-  if (BigInt(yes) < BigInt(quorum)) return { execute: false, reason: "quorum_not_met" };
+  const snapshot = p.snapshot;
+  if (snapshot === undefined) return { execute: false, reason: "config_unreadable" };
+  if (BigInt(yes) < BigInt(snapshot.quorum)) return { execute: false, reason: "quorum_not_met" };
 
   // Both tiers wait out their delay (high-tier timelock, low-tier delay) unless
-  // every seated human has voted yes.
-  const totalHuman = BigInt(config.totalHumanVotingPower ?? "0");
+  // every human seated at creation has voted yes.
+  const totalHuman = BigInt(snapshot.totalHumanVotingPower);
   const unanimous =
-    Boolean(config.unanimityFastPath) &&
-    totalHuman > 0n &&
-    BigInt(p.yesHumanVotes ?? 0) >= totalHuman;
+    snapshot.unanimityFastPath && totalHuman > 0n && BigInt(p.yesHumanVotes ?? 0) >= totalHuman;
   const pending = nowSeconds < p.eta;
   if (pending && !unanimous) return { execute: false, reason: "timelock_pending" };
 

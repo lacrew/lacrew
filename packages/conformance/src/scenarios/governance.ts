@@ -476,4 +476,44 @@ export const governanceScenarios: Scenario[] = [
     },
     { rootPower: 0n },
   ),
+
+  governed("a proposal is decided on the seats and bars it was created with", (b) => {
+    b.call("root", "@gov", "setVotingPower", ["manager", 1n, SEAT.agent]);
+
+    // Seats granted or re-weighted mid-vote do not touch a proposal already open.
+    const hireWorker = b.propose("root", LOW, hire("worker", KIND.worker, "root"));
+    b.call("root", "@gov", "setVotingPower", ["stranger", 5n, SEAT.agent]);
+    b.reverts("NotSeatedAtProposal", "stranger", "@gov", "vote", [BigInt(hireWorker), false]);
+    b.call("root", "@gov", "setVotingPower", ["manager", 9n, SEAT.agent]);
+    b.vote("manager", hireWorker, false);
+    b.expect({ proposals: { [hireWorker]: { noVotes: 1 } } }, "snapshot weight, not 9");
+    b.vote("root", hireWorker);
+    // A quorum raised mid-vote does not move the proposal's bar either.
+    b.call("root", "@gov", "setQuorumYes", [20n]);
+    b.execute("root", hireWorker, { events: ["NodeAdded", "ProposalExecuted"] });
+    b.expect({
+      proposals: { [hireWorker]: { state: "executed", yesVotes: 2, noVotes: 1 } },
+      nodes: { worker: { parent: "root" } },
+    });
+
+    // A seat revoked after creation keeps its snapshot weight on that proposal only.
+    b.call("root", "@gov", "setQuorumYes", [2n]);
+    const hireManager = b.propose("root", LOW, hire("manager", KIND.manager, "root"));
+    b.call("root", "@gov", "setVotingPower", ["manager", 0n, SEAT.none]);
+    b.vote("manager", hireManager, false);
+    b.expect({ proposals: { [hireManager]: { noVotes: 9 } } }, "revoked seat, snapshot weight");
+    b.vote("root", hireManager);
+    b.reverts("Outvoted", "root", "@gov", "execute", [BigInt(hireManager)]);
+    const later = b.propose("root", LOW, hire("manager", KIND.manager, "root"));
+    b.reverts("NoVotingPower", "manager", "@gov", "vote", [BigInt(later), false]);
+
+    // A human admitted mid-vote cannot vote on it and does not raise its unanimity bar:
+    // the root, every human of its electorate, has voted yes, so it skips the timelock.
+    const quorum = b.propose("root", HIGH, { to: "@gov", fn: "setQuorumHumanYes", args: [1n] });
+    b.vote("root", quorum);
+    b.pass({ to: "@gov", fn: "admitHuman", args: ["human2", 2n] }, HIGH);
+    b.reverts("NotSeatedAtProposal", "human2", "@gov", "vote", [BigInt(quorum), false]);
+    b.execute("root", quorum, { events: ["QuorumHumanYesUpdated", "ProposalExecuted"] });
+    b.expect({ proposals: { [quorum]: { state: "executed" } } });
+  }),
 ];

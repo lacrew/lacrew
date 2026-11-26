@@ -892,6 +892,7 @@ export class SandboxLacrewClient implements ProtocolClient {
 
   private readProposal(ctx: Ctx, id: bigint): GovernanceProposal {
     const p = governance.proposals(ctx, id);
+    const snap = governance.proposalSnapshots(ctx, id);
     return {
       id: id.toString(),
       proposer: p.proposer,
@@ -906,6 +907,13 @@ export class SandboxLacrewClient implements ProtocolClient {
       deadline: Number(p.deadline),
       eta: Number(p.eta),
       state: STATE_FROM[p.state] ?? "active",
+      snapshot: {
+        seatEpoch: snap.seatEpoch.toString(),
+        unanimityFastPath: snap.unanimityFastPath,
+        quorum: snap.quorum.toString(),
+        totalVotingPower: snap.totalVotingPower.toString(),
+        totalHumanVotingPower: snap.totalHumanVotingPower.toString(),
+      },
     };
   }
 

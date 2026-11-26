@@ -152,15 +152,15 @@ contract GovernanceModuleTest is Test {
             OrgRegistry.addNode,
             (worker, IOrgRegistry.NodeKind.WorkerAgent, root)
         );
+        // Agent weight outweighing every human seat still cannot carry high tier.
+        address agent2 = makeAddr("agent2");
+        vm.prank(root);
+        gov.setVotingPower(agent2, 5, GovernanceModule.SeatRole.Agent);
         vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(registry), data);
 
         vm.prank(agent);
         gov.vote(id, true);
-        // Two agent-style votes still insufficient without human yes — bump agent power.
-        address agent2 = makeAddr("agent2");
-        vm.prank(root);
-        gov.setVotingPower(agent2, 5, GovernanceModule.SeatRole.Agent);
         vm.prank(agent2);
         gov.vote(id, true);
 

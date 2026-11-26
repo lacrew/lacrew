@@ -706,3 +706,115 @@ describe("kernel GovernanceModule: proposals", () => {
     assert.equal(sim.world.governance.votingPeriod, HOUR);
   });
 });
+
+describe("kernel GovernanceModule: seat snapshots (LC-17)", () => {
+  const snapshot = (sim: Sim, id: bigint) =>
+    sim.read((ctx) => governance.proposalSnapshots(ctx, id));
+
+  it("records the seat epoch, the tier's quorum, the weights and the fast path at creation", () => {
+    const sim = module();
+    agentSeat(sim, MANAGER, 1n);
+    const id = low(sim);
+    const snap = snapshot(sim, id);
+    assert.equal(snap.seatEpoch, sim.world.governance.seatEpoch);
+    assert.equal(
+      snap.quorum,
+      sim.read((ctx) => governance.effectiveQuorumYes(ctx)),
+    );
+    assert.equal(snap.totalVotingPower, 3n);
+    assert.equal(snap.totalHumanVotingPower, 2n);
+    assert.equal(snap.unanimityFastPath, true);
+  });
+
+  it("a seat granted after creation cannot vote on it", () => {
+    const sim = module();
+    const id = low(sim);
+    agentSeat(sim, MANAGER, 5n);
+    sim.reverts("NotSeatedAtProposal", MANAGER, (ctx) => governance.vote(ctx, id, true));
+    sim.reverts("NoVotingPower", STRANGER, (ctx) => governance.vote(ctx, id, true));
+    const next = low(sim);
+    vote(sim, MANAGER, next);
+    assert.equal(proposal(sim, next).yesVotes, 5n);
+  });
+
+  it("a weight changed mid-vote votes with its snapshot weight", () => {
+    const sim = module();
+    agentSeat(sim, MANAGER, 1n);
+    const id = low(sim);
+    agentSeat(sim, MANAGER, 9n);
+    vote(sim, MANAGER, id, false);
+    assert.equal(proposal(sim, id).noVotes, 1n);
+  });
+
+  it("a quorum raised mid-vote does not move the bar", () => {
+    const sim = module();
+    const id = low(sim);
+    vote(sim, ROOT, id);
+    agentSeat(sim, MANAGER, 10n);
+    sim.send(ROOT, (ctx) => governance.setQuorumYes(ctx, 10n));
+    sim.warp(LOW_DELAY);
+    sim.send(ROOT, execute(id));
+    assert.equal(proposal(sim, id).state, ProposalState.Executed);
+  });
+
+  it("a human admitted mid-vote neither votes on it nor raises its unanimity bar", () => {
+    const sim = module();
+    const id = high(sim, TARGET, "0x");
+    vote(sim, ROOT, id);
+    admitSecondHuman(sim);
+    assert.equal(sim.world.governance.totalHumanVotingPower, 4n);
+    sim.reverts("NotSeatedAtProposal", SECOND_HUMAN, (ctx) => governance.vote(ctx, id, false));
+    sim.send(ROOT, execute(id));
+    assert.equal(proposal(sim, id).state, ProposalState.Executed);
+  });
+
+  it("the fast-path switch is read from the snapshot", () => {
+    const sim = module();
+    const id = high(sim, TARGET, "0x");
+    vote(sim, ROOT, id);
+    sim.send(ROOT, (ctx) => governance.setUnanimityFastPath(ctx, false));
+    sim.send(ROOT, execute(id));
+    assert.equal(proposal(sim, id).state, ProposalState.Executed);
+  });
+
+  it("a seat revoked after creation keeps its snapshot weight on it, and only on it", () => {
+    const sim = module();
+    agentSeat(sim, MANAGER, 1n);
+    const id = low(sim);
+    sim.send(ROOT, (ctx) => governance.setVotingPower(ctx, MANAGER, 0n, SeatRole.None));
+    vote(sim, MANAGER, id, false);
+    assert.equal(proposal(sim, id).noVotes, 1n);
+    const next = low(sim);
+    sim.reverts("NoVotingPower", MANAGER, (ctx) => governance.vote(ctx, next, false));
+  });
+
+  it("seatAt reads each checkpoint", () => {
+    const sim = module();
+    const e0 = sim.world.governance.seatEpoch;
+    agentSeat(sim, MANAGER, 3n);
+    const e1 = sim.world.governance.seatEpoch;
+    agentSeat(sim, WORKER, 1n);
+    agentSeat(sim, MANAGER, 5n);
+    const e2 = sim.world.governance.seatEpoch;
+    const at = (epoch: bigint) => sim.read((ctx) => governance.seatAt(ctx, MANAGER, epoch));
+    assert.deepEqual(at(e0), { power: 0n, role: SeatRole.None });
+    assert.deepEqual(at(e1), { power: 3n, role: SeatRole.Agent });
+    assert.deepEqual(at(e1 + 1n), { power: 3n, role: SeatRole.Agent });
+    assert.deepEqual(at(e2), { power: 5n, role: SeatRole.Agent });
+  });
+
+  it("backfills a world saved before seat snapshots existed", () => {
+    const sim = module();
+    agentSeat(sim, MANAGER, 1n);
+    const id = low(sim);
+    const g = sim.world.governance as Partial<governance.GovernanceState> &
+      governance.GovernanceState;
+    delete (g as Partial<governance.GovernanceState>).seatCheckpoints;
+    delete (g as Partial<governance.GovernanceState>).proposalSnapshots;
+    governance.backfillSeatSnapshots(g);
+    vote(sim, MANAGER, id);
+    vote(sim, ROOT, id);
+    assert.equal(proposal(sim, id).yesVotes, 3n);
+    assert.equal(snapshot(sim, id).totalVotingPower, 3n);
+  });
+});

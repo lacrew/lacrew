@@ -69,6 +69,25 @@ export interface ProposalRecord {
   state: number;
 }
 
+/** What a proposal is decided on, frozen when it is created (`proposalSnapshots(id)`). */
+export interface ProposalSnapshot {
+  /** The seat epoch votes are weighed at (`seatAt`). */
+  seatEpoch: bigint;
+  unanimityFastPath: boolean;
+  /** The tier's effective quorum: yes-weight for Low, human yes-weight for High. */
+  quorum: bigint;
+  totalVotingPower: bigint;
+  /** Human seat weight at `seatEpoch`: the unanimity bar. */
+  totalHumanVotingPower: bigint;
+}
+
+/** A seat's weight and role from `epoch` until its next checkpoint. */
+export interface SeatCheckpoint {
+  epoch: bigint;
+  role: number;
+  power: bigint;
+}
+
 export interface GovernanceState {
   humanRoot: Address;
   nextProposalId: bigint;
@@ -88,6 +107,12 @@ export interface GovernanceState {
   yesHumanVoters?: Record<string, Address[]>;
   votingPower: Record<Address, bigint>;
   seatRole: Record<Address, number>;
+  /** Counts seat changes; each `setSeat` checkpoints the seat under the next epoch. */
+  seatEpoch: bigint;
+  /** Seat history per address, ascending by epoch. */
+  seatCheckpoints: Record<Address, SeatCheckpoint[]>;
+  /** Keyed by proposal id as a decimal string. */
+  proposalSnapshots: Record<string, ProposalSnapshot>;
   totalVotingPower: bigint;
   totalHumanVotingPower: bigint;
   humanSeatCount: bigint;
@@ -119,6 +144,9 @@ export function blankGovernance(): GovernanceState {
     yesHumanVoters: {},
     votingPower: {},
     seatRole: {},
+    seatEpoch: 0n,
+    seatCheckpoints: {},
+    proposalSnapshots: {},
     totalVotingPower: 0n,
     totalHumanVotingPower: 0n,
     humanSeatCount: 0n,
@@ -130,6 +158,41 @@ export function blankGovernance(): GovernanceState {
     lowTierDelay: DEFAULT_LOW_TIER_DELAY,
     lowTierSelector: { [ADD_NODE_SELECTOR]: true },
   };
+}
+
+/**
+ * A world saved before seat snapshots existed has no seat history and no
+ * proposal snapshots. Seed one checkpoint per current seat and snapshot every
+ * stored proposal on the electorate as it stands, so such a world loads and
+ * keeps deciding its proposals on the seats it had when it was saved.
+ */
+export function backfillSeatSnapshots(state: GovernanceState): void {
+  if (state.seatCheckpoints !== undefined && state.proposalSnapshots !== undefined) return;
+  state.seatEpoch ??= 0n;
+  if (state.seatCheckpoints === undefined) {
+    state.seatCheckpoints = {};
+    for (const [voter, power] of Object.entries(state.votingPower) as [Address, bigint][]) {
+      state.seatEpoch += 1n;
+      state.seatCheckpoints[voter] = [
+        { epoch: state.seatEpoch, role: state.seatRole[voter] ?? SeatRole.None, power },
+      ];
+    }
+  }
+  const clamp = (quorum: bigint, available: bigint) =>
+    available > 0n && available < quorum ? available : quorum;
+  state.proposalSnapshots ??= {};
+  for (const [id, p] of Object.entries(state.proposals)) {
+    state.proposalSnapshots[id] ??= {
+      seatEpoch: state.seatEpoch,
+      unanimityFastPath: state.unanimityFastPath,
+      quorum:
+        p.tier === Tier.High
+          ? clamp(state.quorumHumanYes, state.totalHumanVotingPower)
+          : clamp(state.quorumYes, state.totalVotingPower),
+      totalVotingPower: state.totalVotingPower,
+      totalHumanVotingPower: state.totalHumanVotingPower,
+    };
+  }
 }
 
 /** `lowTierDelay()`. */
@@ -180,6 +243,36 @@ export function noHumanVotes(ctx: Ctx, proposalId: bigint): bigint {
   return ctx.world.governance.noHumanVotes?.[proposalId.toString()] ?? 0n;
 }
 
+/** `proposalSnapshots(id)`: an unset slot reads as the zero struct. */
+export function proposalSnapshots(ctx: Ctx, proposalId: bigint): ProposalSnapshot {
+  return { ...snapshotOf(ctx.world.governance, proposalId) };
+}
+
+function snapshotOf(state: GovernanceState, proposalId: bigint): ProposalSnapshot {
+  return (
+    state.proposalSnapshots[proposalId.toString()] ?? {
+      seatEpoch: 0n,
+      unanimityFastPath: false,
+      quorum: 0n,
+      totalVotingPower: 0n,
+      totalHumanVotingPower: 0n,
+    }
+  );
+}
+
+/**
+ * `seatAt(voter, epoch)`: the seat as of `epoch` (the latest checkpoint at or
+ * before it). An address never seated by then reads as (0, None).
+ */
+export function seatAt(ctx: Ctx, voter_: Address, epoch: bigint): { power: bigint; role: number } {
+  const cps = ctx.world.governance.seatCheckpoints[addr(voter_)] ?? [];
+  for (let i = cps.length - 1; i >= 0; i--) {
+    const cp = cps[i]!;
+    if (cp.epoch <= epoch) return { power: cp.power, role: cp.role };
+  }
+  return { power: 0n, role: SeatRole.None };
+}
+
 export function hasVoted(ctx: Ctx, proposalId: bigint, voter: Address): boolean {
   return ctx.world.governance.hasVoted[proposalId.toString()]?.[addr(voter)] ?? false;
 }
@@ -222,18 +315,7 @@ export function deploy(ctx: Ctx, address: Address, humanRoot_: Address, rootPowe
     selector: ADD_NODE_SELECTOR,
     allowed: true,
   });
-  if (rootPower_ > 0n) {
-    state.votingPower[humanRoot] = rootPower_;
-    state.seatRole[humanRoot] = SeatRole.Human;
-    state.totalVotingPower = rootPower_;
-    state.totalHumanVotingPower = rootPower_;
-    state.humanSeatCount = 1n;
-    emit(ctx, address, CONTRACT, "VotingPowerUpdated", {
-      voter: humanRoot,
-      power: rootPower_,
-      role: SeatRole.Human,
-    });
-  }
+  if (rootPower_ > 0n) setSeat(ctx, humanRoot, rootPower_, SeatRole.Human);
 }
 
 export function setVotingPower(ctx: Ctx, voter_: Address, power: bigint, role_: number): void {
@@ -334,6 +416,8 @@ function setSeat(ctx: Ctx, voter: Address, power: bigint, role: number): void {
   }
   state.votingPower[voter] = power;
   state.seatRole[voter] = role;
+  state.seatEpoch += 1n;
+  (state.seatCheckpoints[voter] ??= []).push({ epoch: state.seatEpoch, role, power });
   emit(ctx, ctx.world.addresses.governanceModule, CONTRACT, "VotingPowerUpdated", {
     voter,
     power,
@@ -412,7 +496,10 @@ export function setLowTierSelector(ctx: Ctx, selector_: Hex, allowed: boolean): 
   });
 }
 
-/** Low-tier quorum actually enforced: never more yes-weight than the seated electorate holds. */
+/**
+ * Low-tier quorum a proposal created now would be held to: never more yes-weight
+ * than the seated electorate holds. An open proposal gates on its snapshot.
+ */
 export function effectiveQuorumYes(ctx: Ctx): bigint {
   const state = ctx.world.governance;
   const available = state.totalVotingPower;
@@ -420,7 +507,7 @@ export function effectiveQuorumYes(ctx: Ctx): bigint {
   return state.quorumYes;
 }
 
-/** High-tier human quorum actually enforced, capped at seated human weight. */
+/** High-tier human quorum a proposal created now would be held to, capped at seated human weight. */
 export function effectiveQuorumHumanYes(ctx: Ctx): bigint {
   const state = ctx.world.governance;
   const available = state.totalHumanVotingPower;
@@ -461,6 +548,13 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
     deadline,
     eta: tier === Tier.High ? deadline + state.highTierTimelock : ctx.now + lowTierDelay(ctx),
     state: ProposalState.Active,
+  };
+  state.proposalSnapshots[proposalId.toString()] = {
+    seatEpoch: state.seatEpoch,
+    unanimityFastPath: state.unanimityFastPath,
+    quorum: tier === Tier.High ? effectiveQuorumHumanYes(ctx) : effectiveQuorumYes(ctx),
+    totalVotingPower: state.totalVotingPower,
+    totalHumanVotingPower: state.totalHumanVotingPower,
   };
   emit(ctx, self, CONTRACT, "ProposalCreated", {
     proposalId,
@@ -505,19 +599,26 @@ export function vote(ctx: Ctx, proposalId: bigint, support: boolean): void {
     throw new SimRevert("AlreadyVoted", { proposalId, voter: ctx.sender });
   }
 
-  const weight = powerOf(state, ctx.sender);
-  if (weight === 0n) throw new SimRevert("NoVotingPower", { voter: ctx.sender });
+  // Weighed at the proposal's snapshot: a seat granted since cannot vote, one
+  // re-weighted or revoked since votes with its snapshot weight and role.
+  const { power: weight, role } = seatAt(ctx, ctx.sender, snapshotOf(state, proposalId).seatEpoch);
+  if (weight === 0n) {
+    if (powerOf(state, ctx.sender) > 0n) {
+      throw new SimRevert("NotSeatedAtProposal", { proposalId, voter: ctx.sender });
+    }
+    throw new SimRevert("NoVotingPower", { voter: ctx.sender });
+  }
 
   (state.hasVoted[proposalId.toString()] ??= {})[ctx.sender] = true;
   if (support) {
     p.yesVotes = checkedAdd(p.yesVotes, weight);
-    if (roleOf(state, ctx.sender) === SeatRole.Human) {
+    if (role === SeatRole.Human) {
       p.yesHumanVotes = checkedAdd(p.yesHumanVotes, weight);
       ((state.yesHumanVoters ??= {})[proposalId.toString()] ??= []).push(ctx.sender);
     }
   } else {
     p.noVotes = checkedAdd(p.noVotes, weight);
-    if (roleOf(state, ctx.sender) === SeatRole.Human) {
+    if (role === SeatRole.Human) {
       const tally = (state.noHumanVotes ??= {});
       const key = proposalId.toString();
       tally[key] = checkedAdd(tally[key] ?? 0n, weight);
@@ -588,15 +689,12 @@ export function execute(ctx: Ctx, proposalId: bigint): void {
     return;
   }
 
+  const snap = snapshotOf(state, proposalId);
   const high = p.tier === Tier.High;
-  if (high) {
-    if (p.yesHumanVotes < effectiveQuorumHumanYes(ctx)) {
-      throw new SimRevert("QuorumNotMet", { proposalId });
-    }
-  } else if (p.yesVotes < effectiveQuorumYes(ctx)) {
+  if ((high ? p.yesHumanVotes : p.yesVotes) < snap.quorum) {
     throw new SimRevert("QuorumNotMet", { proposalId });
   }
-  if (ctx.now < p.eta && !unanimousHumanYes(state, p)) {
+  if (ctx.now < p.eta && !unanimousHumanYes(snap, p)) {
     throw new SimRevert("TimelockNotElapsed", { proposalId, eta: p.eta });
   }
 
@@ -616,11 +714,14 @@ export function execute(ctx: Ctx, proposalId: bigint): void {
   emit(ctx, self, CONTRACT, "ProposalExecuted", { proposalId });
 }
 
-/** The delay shields humans who have not voted; unanimity means none remain. */
-function unanimousHumanYes(state: GovernanceState, p: ProposalRecord): boolean {
+/**
+ * The delay shields humans who have not voted; unanimity means none remain.
+ * The bar is the human weight seated when the proposal was created.
+ */
+function unanimousHumanYes(snap: ProposalSnapshot, p: ProposalRecord): boolean {
   return (
-    state.unanimityFastPath &&
-    state.totalHumanVotingPower > 0n &&
-    p.yesHumanVotes >= state.totalHumanVotingPower
+    snap.unanimityFastPath &&
+    snap.totalHumanVotingPower > 0n &&
+    p.yesHumanVotes >= snap.totalHumanVotingPower
   );
 }

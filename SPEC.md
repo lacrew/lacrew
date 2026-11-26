@@ -305,10 +305,14 @@ failed call reverts the action instead of emitting).
 
 Quorum voting over structure, budgets, and policy upgrades. Two tiers:
 
-- **Low** (`Tier.Low`): instant execution once `yesVotes >= quorumYes`.
+- **Low** (`Tier.Low`): instant execution once `yesVotes` meets the proposal's
+  snapshot quorum.
 - **High** (`Tier.High`): treasury/policy-touching; additionally requires
-  `yesHumanVotes >= quorumHumanYes`, a timelock (`eta`), and remains
-  human-vetoable until execution.
+  `yesHumanVotes` to meet the proposal's snapshot human quorum, a timelock
+  (`eta`), and remains human-vetoable until execution.
+
+Every proposal is decided on the electorate it was created with (§6.3): the
+quorum, the unanimity bar and each voter's weight are fixed at `propose`.
 
 Seats are role-weighted (`SeatRole.Human | Agent`); agent seats carry review
 authority but human seats hold final say on high tier. Any funded Human seat
@@ -323,10 +327,10 @@ is the root keeps its veto, and every other Human's veto still works.
 with more weight against than for as `Defeated` instead of running it. Each
 tier is defeated by the electorate that can pass it:
 
-| Tier | Passes on                         | Defeated when (after the deadline) |
-| ---- | --------------------------------- | ---------------------------------- |
-| Low  | `yesVotes >= quorumYes`           | `noVotes > yesVotes`               |
-| High | `yesHumanVotes >= quorumHumanYes` | `noHumanVotes > yesHumanVotes`     |
+| Tier | Passes on                          | Defeated when (after the deadline) |
+| ---- | ---------------------------------- | ---------------------------------- |
+| Low  | `yesVotes >= snapshot.quorum`      | `noVotes > yesVotes`               |
+| High | `yesHumanVotes >= snapshot.quorum` | `noHumanVotes > yesHumanVotes`     |
 
 Agent seats may vote on a high-tier proposal and their weight is recorded in
 `yesVotes` / `noVotes`, but it decides nothing there: it cannot defeat a
@@ -343,6 +347,11 @@ function setVotingPower(address voter, uint256 power, SeatRole role) external;  
 function admitHuman(address human, uint256 power) external;                     // governance only
 function removeHuman(address human) external;                                   // governance only
 function humanSeatCount() external view returns (uint256);
+function proposalSnapshots(uint256 proposalId) external view returns (
+    uint64 seatEpoch, bool unanimityFastPath, uint256 quorum,
+    uint256 totalVotingPower, uint256 totalHumanVotingPower);
+function seatEpoch() external view returns (uint64);
+function seatAt(address voter, uint256 epoch) external view returns (uint256 power, SeatRole role);
 ```
 
 Events: `ProposalCreated`, `Voted`, `ProposalExecuted`, `ProposalVetoed`,
@@ -384,7 +393,7 @@ that can change hands, not a permanent key.
 
 **Observer seats are not modelled.** A seat with power 0 is a revoked seat —
 `setVotingPower` coerces role `None` at zero weight, and `vote()` reverts
-`NoVotingPower`. A human who should watch without voting is an off-chain
+`NoVotingPower` on any proposal created after the revocation. A human who should watch without voting is an off-chain
 concern (workspace membership), not a chain-level seat, because the veto right
 this contract grants is derived from _funded_ human seats and a zero-weight
 veto-holder would be a contradiction.
@@ -404,8 +413,11 @@ rooted)` moves it in one transaction:
 
 - **the seat** — the old root's `Human` seat moves to `newRoot` with its weight,
   or, when `newRoot` already holds a `Human` seat (a partner being promoted), is
-  simply revoked. The retired key loses its vote, its veto and its parameter
-  admin. An `Agent` seat cannot become the root (`RootIsAgentSeat`).
+  simply revoked. The retired key loses its veto, its parameter admin and its
+  vote on every proposal created after the rotation. On proposals already open
+  it keeps its snapshot weight (§6.3), and the new key cannot vote on them;
+  any remaining human, the new root included, can veto them. An `Agent` seat
+  cannot become the root (`RootIsAgentSeat`).
 - **every contract in `rooted`** — each is called with `rotateRoot(newRoot)`
   and must have this module as its governor. In a deployed org that is the
   `OrgRegistry` (the tree's top node, and with it `EscalationRouter.resolve`'s
@@ -429,6 +441,46 @@ What it does not do: a root key that is compromised **and actively used** can
 still veto its own rotation while it holds its seat — the same "a veto is a
 stop, not a recovery" property as §6.1. Rotation recovers a lost key, and a
 compromised one whose holder does not contest it in the voting window.
+
+### 6.3 Seat snapshots — a proposal is decided on the seats it was created with
+
+`propose` records, per proposal (`proposalSnapshots(id)`):
+
+| Field                   | What it fixes                                                   |
+| ----------------------- | --------------------------------------------------------------- |
+| `seatEpoch`             | the seat state votes are weighed at                             |
+| `quorum`                | the tier's effective quorum (low: all seats, high: human seats) |
+| `totalVotingPower`      | all seat weight at creation                                     |
+| `totalHumanVotingPower` | human seat weight at creation — the unanimity fast-path bar     |
+| `unanimityFastPath`     | whether unanimous human yes skips this proposal's delay         |
+
+Every seat change (`setVotingPower`, `admitHuman`, `removeHuman`,
+`rotateRoot`, the constructor's root seat) increments `seatEpoch` and pushes
+a checkpoint onto that seat's own history. `vote` weighs a ballot by
+`seatAt(voter, snapshot.seatEpoch)`, role included; `execute` gates on the
+snapshot's quorum and unanimity bar. Hence:
+
+- **A seat granted after creation cannot vote on it** — `NotSeatedAtProposal`
+  for an address that holds a seat now but held none then; `NoVotingPower` for
+  one that holds none at all.
+- **A seat re-weighted after creation votes with its snapshot weight**, and a
+  quorum, a seat or the fast-path switch changed since moves neither the
+  quorum nor the unanimity bar.
+- **A seat revoked after creation keeps its snapshot weight on it** — votes
+  already cast stand, and it may still cast one. Dropping its votes instead
+  would let seat admin (the root, for agent seats) move the tally of an open
+  proposal — exactly what the snapshot exists to prevent — and would leave the
+  snapshot totals counting weight that can no longer vote. A revoked seat
+  cannot vote on any proposal created after the revocation.
+- **The veto is not snapshotted.** It is the live safety valve: whoever is a
+  funded Human seat when it is used holds it, so a removed human loses it at
+  once and a newly admitted one gains it on proposals already open.
+
+Gas stays bounded: `propose` writes one fixed-size snapshot, each seat change
+pushes one checkpoint, and `seatAt` reads the newest checkpoint first and
+otherwise binary-searches that one seat's history. Nothing iterates the
+electorate, which the module does not enumerate. `effectiveQuorumYes` /
+`effectiveQuorumHumanYes` remain as the bars a proposal created now would get.
 
 ## 7. SessionRegistry — bounded, expiring authority
 
