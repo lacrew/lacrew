@@ -6,6 +6,8 @@ LaCrew’s product promise is **bounded blast radius**: agents can spend only wh
 
 This repository is **pre-audit** Phase 0/1 scaffolding. Treat all deployments as test-only until a professional audit is published (see PRD F1.2).
 
+The findings of the internal audit, with their fix PRs and status, are in [docs/security/audit-2026-11.md](./docs/security/audit-2026-11.md). It is not a third-party audit.
+
 | Control                                                            | Code status                                                                                                                                                          |
 | ------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Policy stack (DENY / ESCALATE / ALLOW)                             | Implemented (+ fuzz: first-DENY-wins)                                                                                                                                |
