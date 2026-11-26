@@ -27,6 +27,8 @@ export interface OrgNodeState {
 export interface OrgRegistryState {
   root: Address;
   governor: Address;
+  /** Named by the governor to take over; holds no power until it accepts. */
+  pendingGovernor?: Address;
   nodes: Record<Address, OrgNodeState>;
   children: Record<Address, Address[]>;
   /**
@@ -92,16 +94,40 @@ export function getChildren(ctx: Ctx, parent: Address): Address[] {
   return [...(ctx.world.orgRegistry.children[addr(parent)] ?? [])];
 }
 
+/** Bind constitutional authority, once, by the root. */
 export function setGovernor(ctx: Ctx, governor_: Address): void {
   const state = ctx.world.orgRegistry;
   const governor = addr(governor_);
   if (governor === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
-  if (state.governor !== ZERO_ADDRESS) {
-    if (ctx.sender !== state.governor) throw new SimRevert("NotAuthorized", { caller: ctx.sender });
-  } else if (ctx.sender !== state.root) {
+  if (state.governor !== ZERO_ADDRESS) throw new SimRevert("GovernorAlreadySet");
+  if (ctx.sender !== state.root) throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  state.governor = governor;
+  emit(ctx, ctx.world.addresses.orgRegistry, CONTRACT, "GovernorUpdated", { governor });
+}
+
+/** Name the address that may take over governance: the current governor only; zero cancels. */
+export function setPendingGovernor(ctx: Ctx, pending_: Address): void {
+  const state = ctx.world.orgRegistry;
+  const pending = addr(pending_);
+  if (state.governor === ZERO_ADDRESS || ctx.sender !== state.governor) {
     throw new SimRevert("NotAuthorized", { caller: ctx.sender });
   }
-  state.governor = governor;
+  state.pendingGovernor = pending;
+  emit(ctx, ctx.world.addresses.orgRegistry, CONTRACT, "PendingGovernorUpdated", {
+    pendingGovernor: pending,
+  });
+}
+
+/** Complete the hand-over: only the pending governor may call it. */
+export function acceptGovernor(ctx: Ctx): void {
+  const state = ctx.world.orgRegistry;
+  const pending = state.pendingGovernor ?? ZERO_ADDRESS;
+  if (pending === ZERO_ADDRESS || ctx.sender !== pending) {
+    throw new SimRevert("NotPendingGovernor", { caller: ctx.sender });
+  }
+  state.governor = pending;
+  state.pendingGovernor = ZERO_ADDRESS;
+  emit(ctx, ctx.world.addresses.orgRegistry, CONTRACT, "GovernorUpdated", { governor: pending });
 }
 
 /**

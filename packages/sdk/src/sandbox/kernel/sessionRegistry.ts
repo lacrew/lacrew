@@ -46,6 +46,8 @@ export interface SessionRegistryState {
    * Optional because a world saved before it existed has none.
    */
   governor?: Address;
+  /** Named by the governor to take over; holds no power until it accepts. */
+  pendingGovernor?: Address;
   issuer: Address;
   maxIssuerTtl: bigint;
   nextSessionId: bigint;
@@ -120,14 +122,42 @@ export function deploy(
   ctx.world.sessionRegistry = { ...blankSessionRegistry(), humanRoot, issuer: humanRoot };
 }
 
-/** Bind governance: the root until bound, then only the current governor. */
+/** Bind governance, once, by the root. */
 export function setGovernor(ctx: Ctx, governor_: Address): void {
   const state = ctx.world.sessionRegistry;
   const governor = addr(governor_);
   if (governor === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
-  onlyGovernorOrUnboundRoot(ctx);
+  if ((state.governor ?? ZERO_ADDRESS) !== ZERO_ADDRESS) throw new SimRevert("GovernorAlreadySet");
+  if (ctx.sender !== state.humanRoot) throw new SimRevert("NotAuthorized", { caller: ctx.sender });
   state.governor = governor;
   emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "GovernorUpdated", { governor });
+}
+
+/** Name the address that may take over governance: the current governor only; zero cancels. */
+export function setPendingGovernor(ctx: Ctx, pending_: Address): void {
+  const state = ctx.world.sessionRegistry;
+  const pending = addr(pending_);
+  if (state.governor === ZERO_ADDRESS || ctx.sender !== state.governor) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
+  state.pendingGovernor = pending;
+  emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "PendingGovernorUpdated", {
+    pendingGovernor: pending,
+  });
+}
+
+/** Complete the hand-over: only the pending governor may call it. */
+export function acceptGovernor(ctx: Ctx): void {
+  const state = ctx.world.sessionRegistry;
+  const pending = state.pendingGovernor ?? ZERO_ADDRESS;
+  if (pending === ZERO_ADDRESS || ctx.sender !== pending) {
+    throw new SimRevert("NotPendingGovernor", { caller: ctx.sender });
+  }
+  state.governor = pending;
+  state.pendingGovernor = ZERO_ADDRESS;
+  emit(ctx, ctx.world.addresses.sessionRegistry, CONTRACT, "GovernorUpdated", {
+    governor: pending,
+  });
 }
 
 /** Hand the root key to `newRoot`; an issuer still set to the old root follows it. */

@@ -133,6 +133,9 @@ export const policyScenarios: Scenario[] = [
     // Binding the governor dropped the admin: the deployer can no longer rebind it either.
     b.reverts("NotAuthorized", "root", "@spendCap", "setGovernor", ["@gov"]);
     b.reverts("NotAuthorized", "root", "@whitelist", "setGovernor", ["@gov"]);
+    // Nor can the governor: the bind is once, and a hand-over is two steps.
+    b.reverts("NotAuthorized", "human2", "@spendCap", "setGovernor", ["@gov"]);
+    b.reverts("NotAuthorized", "human2", "@whitelist", "setGovernor", ["@gov"]);
     // From here on the governor alone administers the modules.
     b.reverts("NotAuthorized", "root", "@spendCap", "setAgentCap", ["worker", 7n]);
     b.call("human2", "@spendCap", "setAgentCap", ["worker", 7n], { events: ["AgentCapSet"] });
@@ -197,6 +200,30 @@ export const policyScenarios: Scenario[] = [
     // The governor does.
     b.call("human2", "$cap3", "setAgentCap", ["worker", 3n], { events: ["AgentCapSet"] });
     b.call("human2", "$wl3", "setAllowed", ["target", false], { events: ["TargetAllowed"] });
+
+    // A hand-over is two steps. Only the governor names a pending one (the dropped admin
+    // cannot), naming another replaces the first, and the pending one has no power until
+    // it accepts.
+    for (const [module, mutate] of [
+      ["$cap3", ["setAgentCap", ["worker", 3n]]],
+      ["$wl3", ["setAllowed", ["target", false]]],
+    ] as const) {
+      b.reverts("NotAuthorized", "stranger", module, "setPendingGovernor", ["stranger"]);
+      b.call("human2", module, "setPendingGovernor", ["root"], {
+        events: ["PendingGovernorUpdated"],
+      });
+      b.call("human2", module, "setPendingGovernor", ["stranger"], {
+        events: ["PendingGovernorUpdated"],
+      });
+      b.reverts("NotAuthorized", "stranger", module, mutate[0], [...mutate[1]]);
+      b.reverts("NotPendingGovernor", "root", module, "acceptGovernor", []);
+      b.reverts("NotPendingGovernor", "human2", module, "acceptGovernor", []);
+      b.call("human2", module, mutate[0], [...mutate[1]]);
+      b.call("stranger", module, "acceptGovernor", [], { events: ["GovernorUpdated"] });
+      b.reverts("NotAuthorized", "human2", module, mutate[0], [...mutate[1]]);
+      b.call("stranger", module, mutate[0], [...mutate[1]]);
+      b.reverts("NotPendingGovernor", "stranger", module, "acceptGovernor", []);
+    }
     b.expect({
       verdicts: [
         { agent: "worker", target: "target", value: 3n, verdict: "ALLOW", module: "$cap3" },

@@ -62,11 +62,30 @@ export const registryScenarios: Scenario[] = [
 
     b.reverts("ZeroAddress", "root", "@registry", "setGovernor", ["zero"]);
     b.reverts("NotAuthorized", "stranger", "@registry", "setGovernor", ["stranger"]);
-    b.call("root", "@registry", "setGovernor", ["human2"]);
+    b.reverts("NotAuthorized", "root", "@registry", "setPendingGovernor", ["human2"]);
+    b.call("root", "@registry", "setGovernor", ["human2"], { events: ["GovernorUpdated"] });
     b.reverts("NotAuthorized", "root", "@registry", "addNode", ["target", KIND.worker, "root"]);
-    b.reverts("NotAuthorized", "root", "@registry", "setGovernor", ["root"]);
+    // The bind is once: neither the root nor the governor binds again.
+    b.reverts("GovernorAlreadySet", "root", "@registry", "setGovernor", ["root"]);
+    b.reverts("GovernorAlreadySet", "human2", "@registry", "setGovernor", ["root"]);
     b.call("human2", "@registry", "addNode", ["target", KIND.worker, "root"]);
-    b.call("human2", "@registry", "setGovernor", ["root"]);
+
+    // A hand-over is two steps. Only the governor names a pending one, and naming another
+    // replaces the first.
+    b.reverts("NotAuthorized", "stranger", "@registry", "setPendingGovernor", ["stranger"]);
+    b.call("human2", "@registry", "setPendingGovernor", ["stranger"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.call("human2", "@registry", "setPendingGovernor", ["root"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    // The pending one has no power yet, and nobody else may accept for it.
+    b.reverts("NotAuthorized", "root", "@registry", "removeNode", ["target"]);
+    b.reverts("NotPendingGovernor", "stranger", "@registry", "acceptGovernor", []);
+    b.reverts("NotPendingGovernor", "human2", "@registry", "acceptGovernor", []);
+    b.call("root", "@registry", "acceptGovernor", [], { events: ["GovernorUpdated"] });
+    b.reverts("NotAuthorized", "human2", "@registry", "addNode", ["worker2", KIND.worker, "root"]);
+    b.reverts("NotPendingGovernor", "root", "@registry", "acceptGovernor", []);
     b.call("root", "@registry", "removeNode", ["target"]);
   }),
 
@@ -150,6 +169,21 @@ export const registryScenarios: Scenario[] = [
 
     b.call("root", "@router", "setGovernor", ["human2"], { events: ["GovernorUpdated"] });
     b.reverts("NotAuthorized", "root", "@router", "setTreasury", ["@treasury"]);
+    // The bind is once, and a hand-over is two steps.
+    b.reverts("GovernorAlreadySet", "root", "@router", "setGovernor", ["root"]);
+    b.reverts("GovernorAlreadySet", "human2", "@router", "setGovernor", ["root"]);
+    b.reverts("NotAuthorized", "root", "@router", "setPendingGovernor", ["stranger"]);
+    b.call("human2", "@router", "setPendingGovernor", ["stranger"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.call("human2", "@router", "setPendingGovernor", ["root"]);
+    b.reverts("NotAuthorized", "root", "@router", "setIntentTtl", [7200n]);
+    b.reverts("NotPendingGovernor", "stranger", "@router", "acceptGovernor", []);
+    b.call("human2", "@router", "setIntentTtl", [7200n]);
+    b.call("root", "@router", "acceptGovernor", [], { events: ["GovernorUpdated"] });
+    b.reverts("NotAuthorized", "human2", "@router", "setTreasury", ["@treasury"]);
+    b.call("root", "@router", "setPendingGovernor", ["human2"]);
+    b.call("human2", "@router", "acceptGovernor", [], { events: ["GovernorUpdated"] });
     b.call("human2", "@router", "setTreasury", ["@treasury"]);
     b.call("human2", "@router", "setRateRecorder", ["@rateLimit"]);
     b.call("human2", "@router", "setSessionRegistry", ["@sessions"]);

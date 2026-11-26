@@ -62,8 +62,6 @@ export const NOT_SIMULATED: Record<string, string> = {
   "Treasury.AlreadyPaused": "Raised only by pause(), which is not simulated.",
   "Treasury.NotPaused": "Raised only by unpause(), which is not simulated.",
   "Treasury.EnforcedPause": "Raised only while paused, and the sandbox never pauses.",
-  "OrgRegistry.GovernorAlreadySet":
-    "Declared by the contract but never raised: setGovernor lets the current governor rebind.",
   "Treasury.withdraw":
     "High-tier governed payout of liquid funds out of the treasury. Not modelled by the sandbox kernel. TODO: mirror it in the kernel.",
   "GovernanceModule.WithdrawNotHighTier":

@@ -134,6 +134,8 @@ const ACTIONS: CallSpec[] = [
   { to: "@gov", fn: "setLowTierDelay", args: [600n] },
   { to: "@gov", fn: "setLowTierSelector", args: ["0x2ce962cf", true] },
   { to: "@registry", fn: "setGovernor", args: ["root"] },
+  { to: "@registry", fn: "setPendingGovernor", args: ["root"] },
+  { to: "@registry", fn: "acceptGovernor", args: [] },
 ];
 
 export class Fuzzer {

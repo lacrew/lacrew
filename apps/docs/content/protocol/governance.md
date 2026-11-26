@@ -33,7 +33,7 @@ The outgoing root cannot veto its own replacement. On a `rotateRoot` proposal na
 
 ## Execution
 
-Only a seated voter (`votingPower > 0`), or the root while it may act, can `propose`. Proposals bind `target` + `calldata`. On `execute`, the module calls `target.call(data)` after quorum and the tier's `eta` (high-tier timelock or low-tier delay) or human unanimity. OrgRegistry / Treasury accept mutations from the governor address after bootstrap `setGovernor`. Proposals may target the GovernanceModule itself to retune quorums, weights, or timing — but only at High tier, so agent seats can never re-weight the electorate through a low-tier vote.
+Only a seated voter (`votingPower > 0`), or the root while it may act, can `propose`. Proposals bind `target` + `calldata`. On `execute`, the module calls `target.call(data)` after quorum and the tier's `eta` (high-tier timelock or low-tier delay) or human unanimity. OrgRegistry / Treasury accept mutations from the governor address after the one-time bootstrap `setGovernor`. Handing governance to a new address (or a new module) is two steps: the current governor calls `setPendingGovernor(next)`, then `next` calls `acceptGovernor()`; until it does, the old governor keeps every power and the pending address has none. Naming another pending address replaces the first, and the zero address cancels. A module moves governance by proposal: `setPendingGovernor` and `acceptGovernor` are both High tier, never Low. Proposals may target the GovernanceModule itself to retune quorums, weights, or timing — but only at High tier, so agent seats can never re-weight the electorate through a low-tier vote.
 
 ## Voting power
 
@@ -72,17 +72,17 @@ In the tree, extra humans are `HumanRoot` nodes parented to the org's single roo
 
 All parameters are onchain. Everything above the seat rows is adjustable by the root directly (while it holds a human seat) or via a High-tier proposal targeting the module; the human roster is governance-only:
 
-| Parameter                                 | Default                                  | Setter                                         |
-| ----------------------------------------- | ---------------------------------------- | ---------------------------------------------- |
-| `quorumYes` (low tier, all seats)         | 2                                        | `setQuorumYes`                                 |
-| `quorumHumanYes` (high tier, human seats) | 1                                        | `setQuorumHumanYes`                            |
-| `votingPeriod`                            | 3 days (bounds 1h–30d)                   | `setTiming`                                    |
-| `highTierTimelock`                        | 1 day (bounds 0–30d)                     | `setTiming`                                    |
-| `unanimityFastPath`                       | on                                       | `setUnanimityFastPath`                         |
-| `lowTierDelay`                            | 1 day (bounds 0–30d)                     | `setLowTierDelay`                              |
-| `lowTierSelector` (low-tier allow-list)   | `addNode` (never `setGovernor`)          | `setLowTierSelector`                           |
-| Agent seat weight                         | manager: 1 agent (deploy script)         | `setVotingPower`                               |
-| Human seat weight / roster                | root: 2 human (constructor `rootPower_`) | `admitHuman` / `removeHuman` (governance only) |
+| Parameter                                 | Default                                                                   | Setter                                         |
+| ----------------------------------------- | ------------------------------------------------------------------------- | ---------------------------------------------- |
+| `quorumYes` (low tier, all seats)         | 2                                                                         | `setQuorumYes`                                 |
+| `quorumHumanYes` (high tier, human seats) | 1                                                                         | `setQuorumHumanYes`                            |
+| `votingPeriod`                            | 3 days (bounds 1h–30d)                                                    | `setTiming`                                    |
+| `highTierTimelock`                        | 1 day (bounds 0–30d)                                                      | `setTiming`                                    |
+| `unanimityFastPath`                       | on                                                                        | `setUnanimityFastPath`                         |
+| `lowTierDelay`                            | 1 day (bounds 0–30d)                                                      | `setLowTierDelay`                              |
+| `lowTierSelector` (low-tier allow-list)   | `addNode` (never `setGovernor`, `setPendingGovernor` or `acceptGovernor`) | `setLowTierSelector`                           |
+| Agent seat weight                         | manager: 1 agent (deploy script)                                          | `setVotingPower`                               |
+| Human seat weight / roster                | root: 2 human (constructor `rootPower_`)                                  | `admitHuman` / `removeHuman` (governance only) |
 
 ## Current scaffolding gaps
 

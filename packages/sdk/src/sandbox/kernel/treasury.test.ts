@@ -178,7 +178,8 @@ describe("kernel Treasury", () => {
 
     sim.send(DEPLOYER, (ctx) => treasury.setGovernor(ctx, GOVERNOR));
     sim.reverts("NotAuthorized", DEPLOYER, (ctx) => treasury.setSpender(ctx, STRANGER));
-    sim.reverts("NotAuthorized", DEPLOYER, (ctx) => treasury.setGovernor(ctx, DEPLOYER));
+    sim.reverts("GovernorAlreadySet", DEPLOYER, (ctx) => treasury.setGovernor(ctx, DEPLOYER));
+    sim.reverts("GovernorAlreadySet", GOVERNOR, (ctx) => treasury.setGovernor(ctx, DEPLOYER));
     sim.send(GOVERNOR, (ctx) => treasury.setSpender(ctx, STRANGER));
     sim.send(GOVERNOR, (ctx) => treasury.setStreamer(ctx, ZERO_ADDRESS));
     assert.equal(sim.world.treasury.spender, STRANGER);

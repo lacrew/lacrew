@@ -57,6 +57,8 @@ export interface EscalationRouterState {
   /** Holds bootstrap authority until `governor` is bound. */
   deployer: Address;
   governor: Address;
+  /** Named by the governor to take over; holds no power until it accepts. */
+  pendingGovernor?: Address;
   nextIntentId: bigint;
   /** Lifetime given to a new intent, in seconds. Optional because a world saved before it existed has none. */
   intentTtl?: bigint;
@@ -97,12 +99,44 @@ export function deploy(ctx: Ctx, address: Address, orgRegistry_: Address, policy
   };
 }
 
+/** Bind constitutional authority, once, by the deployer. */
 export function setGovernor(ctx: Ctx, governor_: Address): void {
   const governor = addr(governor_);
   if (governor === ZERO_ADDRESS) throw new SimRevert("ZeroAddress");
-  onlyGovernorOrBootstrap(ctx);
+  if (ctx.world.escalationRouter.governor !== ZERO_ADDRESS)
+    throw new SimRevert("GovernorAlreadySet");
+  if (ctx.sender !== ctx.world.escalationRouter.deployer) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
   ctx.world.escalationRouter.governor = governor;
   emit(ctx, ctx.world.addresses.escalationRouter, CONTRACT, "GovernorUpdated", { governor });
+}
+
+/** Name the address that may take over governance: the current governor only; zero cancels. */
+export function setPendingGovernor(ctx: Ctx, pending_: Address): void {
+  const state = ctx.world.escalationRouter;
+  const pending = addr(pending_);
+  if (state.governor === ZERO_ADDRESS || ctx.sender !== state.governor) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
+  state.pendingGovernor = pending;
+  emit(ctx, ctx.world.addresses.escalationRouter, CONTRACT, "PendingGovernorUpdated", {
+    pendingGovernor: pending,
+  });
+}
+
+/** Complete the hand-over: only the pending governor may call it. */
+export function acceptGovernor(ctx: Ctx): void {
+  const state = ctx.world.escalationRouter;
+  const pending = state.pendingGovernor ?? ZERO_ADDRESS;
+  if (pending === ZERO_ADDRESS || ctx.sender !== pending) {
+    throw new SimRevert("NotPendingGovernor", { caller: ctx.sender });
+  }
+  state.governor = pending;
+  state.pendingGovernor = ZERO_ADDRESS;
+  emit(ctx, ctx.world.addresses.escalationRouter, CONTRACT, "GovernorUpdated", {
+    governor: pending,
+  });
 }
 
 /** Set the lifetime of intents created from now on. */

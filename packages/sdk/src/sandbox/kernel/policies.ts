@@ -36,6 +36,8 @@ export interface SpendCapPolicyState {
   hasAgentCap: Record<Address, boolean>;
   admin: Address;
   governor: Address;
+  /** Named by the governor to take over; holds no power until it accepts. */
+  pendingGovernor?: Address;
 }
 
 export interface WhitelistPolicyState {
@@ -43,6 +45,8 @@ export interface WhitelistPolicyState {
   allowed: Record<Address, boolean>;
   admin: Address;
   governor: Address;
+  /** Named by the governor to take over; holds no power until it accepts. */
+  pendingGovernor?: Address;
 }
 
 export interface RateLimitPolicyState {
@@ -233,6 +237,36 @@ export function setGovernor(ctx: Ctx, module_: Address, governor_: Address): voi
   module.governor = governor;
   module.admin = ZERO_ADDRESS;
   emit(ctx, addr(module_), module.kind, "GovernorUpdated", { governor });
+}
+
+/** `pendingGovernor` of a SpendCapPolicy or WhitelistPolicy. */
+export function pendingGovernorOf(ctx: Ctx, module_: Address): Address {
+  return (
+    moduleOf(ctx, module_, "SpendCapPolicy", "WhitelistPolicy").pendingGovernor ?? ZERO_ADDRESS
+  );
+}
+
+/** Name the address that may take over governance: the current governor only; zero cancels. */
+export function setPendingGovernor(ctx: Ctx, module_: Address, pending_: Address): void {
+  const module = moduleOf(ctx, module_, "SpendCapPolicy", "WhitelistPolicy");
+  const pending = addr(pending_);
+  if (module.governor === ZERO_ADDRESS || ctx.sender !== module.governor) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
+  module.pendingGovernor = pending;
+  emit(ctx, addr(module_), module.kind, "PendingGovernorUpdated", { pendingGovernor: pending });
+}
+
+/** Complete the hand-over: only the pending governor may call it. */
+export function acceptGovernor(ctx: Ctx, module_: Address): void {
+  const module = moduleOf(ctx, module_, "SpendCapPolicy", "WhitelistPolicy");
+  const pending = module.pendingGovernor ?? ZERO_ADDRESS;
+  if (pending === ZERO_ADDRESS || ctx.sender !== pending) {
+    throw new SimRevert("NotPendingGovernor", { caller: ctx.sender });
+  }
+  module.governor = pending;
+  module.pendingGovernor = ZERO_ADDRESS;
+  emit(ctx, addr(module_), module.kind, "GovernorUpdated", { governor: pending });
 }
 
 export function setAgentCap(ctx: Ctx, module_: Address, agent_: Address, cap_: bigint): void {

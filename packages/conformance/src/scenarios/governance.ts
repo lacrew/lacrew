@@ -210,6 +210,17 @@ export const governanceScenarios: Scenario[] = [
       "@registry",
       { call: { to: "@registry", fn: "setGovernor", args: ["root"] } },
     ]);
+    // Naming a successor and accepting a hand-over are governor transfers too.
+    b.reverts("GovernorTransferNotHighTier", "root", "@gov", "propose", [
+      LOW,
+      "@registry",
+      { call: { to: "@registry", fn: "setPendingGovernor", args: ["root"] } },
+    ]);
+    b.reverts("GovernorTransferNotHighTier", "root", "@gov", "propose", [
+      LOW,
+      "@registry",
+      { call: { to: "@registry", fn: "acceptGovernor", args: [] } },
+    ]);
     // The low tier carries an agent hire and nothing else unless the org allow-lists it.
     b.reverts("ActionNotLowTier", "root", "@gov", "propose", [
       LOW,
@@ -224,10 +235,12 @@ export const governanceScenarios: Scenario[] = [
     b.reverts("ActionNotLowTier", "root", "@gov", "propose", [LOW, "@registry", "0xdeadbeef"]);
     b.reverts("NotHumanRoot", "stranger", "@gov", "setLowTierSelector", ["0xdeadbeef", true]);
     b.reverts("NotHumanRoot", "stranger", "@gov", "setLowTierDelay", [0n]);
-    b.reverts("GovernorTransferNotHighTier", "root", "@gov", "setLowTierSelector", [
-      "0xc42cf535",
-      true,
-    ]);
+    for (const selector of ["0xc42cf535", "0xf235757f", "0xe58bb639"]) {
+      b.reverts("GovernorTransferNotHighTier", "root", "@gov", "setLowTierSelector", [
+        selector,
+        true,
+      ]);
+    }
     b.reverts("InvalidLowTierDelay", "root", "@gov", "setLowTierDelay", [BigInt(30 * DAY + 1)]);
     b.call("root", "@gov", "setLowTierSelector", ["0xdeadbeef", true], {
       events: ["LowTierSelectorUpdated"],
@@ -434,13 +447,34 @@ export const governanceScenarios: Scenario[] = [
   }),
 
   governed("handing a contract's governor on takes a high-tier proposal", (b) => {
-    b.pass({ to: "@registry", fn: "setGovernor", args: ["root"] }, HIGH);
+    b.pass({ to: "@registry", fn: "setPendingGovernor", args: ["root"] }, HIGH);
+    // Naming a successor moves nothing: the module still governs the tree, and the
+    // pending address holds no power until it accepts.
+    b.reverts("NotAuthorized", "root", "@registry", "addNode", ["manager", KIND.manager, "root"]);
+    b.reverts("NotPendingGovernor", "stranger", "@registry", "acceptGovernor", []);
+    b.call("root", "@registry", "acceptGovernor", [], { events: ["GovernorUpdated"] });
     // The root governs the tree by key again; the module no longer can.
     b.call("root", "@registry", "addNode", ["manager", KIND.manager, "root"]);
     const p = b.propose("root", LOW, hire("worker", KIND.worker, "manager"));
     b.vote("root", p);
     b.execute("root", p, { revert: "ActionFailed" });
     b.expect({ tree: ["root", "manager"] });
+  }),
+
+  governed("the module takes a contract back through a high-tier accept proposal", (b) => {
+    b.pass({ to: "@registry", fn: "setPendingGovernor", args: ["root"] }, HIGH);
+    b.call("root", "@registry", "acceptGovernor", [], { events: ["GovernorUpdated"] });
+    // The root names the module; the module cannot act until its own proposal accepts.
+    b.call("root", "@registry", "setPendingGovernor", ["@gov"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    const early = b.propose("root", LOW, hire("manager", KIND.manager, "root"));
+    b.vote("root", early);
+    b.execute("root", early, { revert: "ActionFailed" });
+    b.pass({ to: "@registry", fn: "acceptGovernor", args: [] }, HIGH);
+    b.reverts("NotAuthorized", "root", "@registry", "addNode", ["manager", KIND.manager, "root"]);
+    b.pass(hire("worker", KIND.worker, "root"), LOW);
+    b.expect({ tree: ["root", "worker"] });
   }),
 
   governed(

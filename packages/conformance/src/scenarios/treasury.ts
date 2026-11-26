@@ -120,6 +120,26 @@ export const treasuryScenarios: Scenario[] = [
     b.call("human2", "@streamer", "setOperator", ["manager2"], { events: ["OperatorUpdated"] });
     b.reverts("NotAuthorized", "operator2", "@streamer", "setOperator", ["operator2"]);
     b.reverts("NotOperator", "operator2", "@streamer", "runNextEpoch");
+
+    // A hand-over is two steps. Neither the operator nor a stranger names a successor, and
+    // naming another replaces the first.
+    b.reverts("NotAuthorized", "operator2", "@streamer", "setPendingGovernor", ["root"]);
+    b.reverts("NotAuthorized", "stranger", "@streamer", "setPendingGovernor", ["stranger"]);
+    b.call("human2", "@streamer", "setPendingGovernor", ["stranger"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.call("human2", "@streamer", "setPendingGovernor", ["root"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.reverts("NotPendingGovernor", "stranger", "@streamer", "acceptGovernor", []);
+    b.reverts("NotPendingGovernor", "human2", "@streamer", "acceptGovernor", []);
+    // Until acceptance the old governor keeps its grant power and the pending one has none.
+    b.call("human2", "@streamer", "setGrant", ["worker", 4n]);
+    b.reverts("NotAuthorized", "root", "@streamer", "setGrant", ["worker", 5n]);
+    b.call("root", "@streamer", "acceptGovernor", [], { events: ["GovernorUpdated"] });
+    b.reverts("NotAuthorized", "human2", "@streamer", "setGrant", ["worker", 5n]);
+    b.call("root", "@streamer", "setGrant", ["worker", 5n]);
+    b.reverts("NotPendingGovernor", "root", "@streamer", "acceptGovernor", []);
   }),
 
   scenario("the treasury's authority and both ways it pays out", (b) => {
@@ -209,6 +229,27 @@ export const treasuryScenarios: Scenario[] = [
     b.reverts("NotAuthorized", "root", "@treasury", "setSpender", ["stranger"]);
     b.call("human2", "@treasury", "setSpender", ["@router"]);
     b.call("human2", "@treasury", "streamAllowance", ["worker", 1n, 9n]);
+
+    // The bind is once, and a hand-over is two steps: only the governor names a pending
+    // one, naming another replaces the first, and the pending one holds nothing until it
+    // accepts.
+    b.reverts("GovernorAlreadySet", "root", "@treasury", "setGovernor", ["root"]);
+    b.reverts("GovernorAlreadySet", "human2", "@treasury", "setGovernor", ["root"]);
+    b.reverts("NotAuthorized", "root", "@treasury", "setPendingGovernor", ["root"]);
+    b.call("human2", "@treasury", "setPendingGovernor", ["stranger"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.call("human2", "@treasury", "setPendingGovernor", ["root"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.reverts("NotAuthorized", "root", "@treasury", "setSpender", ["stranger"]);
+    b.reverts("NotPendingGovernor", "stranger", "@treasury", "acceptGovernor", []);
+    b.reverts("NotPendingGovernor", "human2", "@treasury", "acceptGovernor", []);
+    b.call("human2", "@treasury", "setSpender", ["@router"]);
+    b.call("root", "@treasury", "acceptGovernor", [], { events: ["GovernorUpdated"] });
+    b.reverts("NotAuthorized", "human2", "@treasury", "setSpender", ["@router"]);
+    b.call("root", "@treasury", "setSpender", ["@router"]);
+    b.reverts("NotPendingGovernor", "root", "@treasury", "acceptGovernor", []);
   }),
 
   scenario("the spend token: minting, transfers and allowances", (b) => {

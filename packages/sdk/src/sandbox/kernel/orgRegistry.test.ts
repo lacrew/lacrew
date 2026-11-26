@@ -82,10 +82,36 @@ describe("kernel OrgRegistry", () => {
 
     sim.send(ROOT, (ctx) => orgRegistry.setGovernor(ctx, GOVERNOR));
     sim.reverts("NotAuthorized", ROOT, (ctx) => orgRegistry.addNode(ctx, A, 2, ROOT));
-    sim.reverts("NotAuthorized", ROOT, (ctx) => orgRegistry.setGovernor(ctx, ROOT));
+    sim.reverts("GovernorAlreadySet", ROOT, (ctx) => orgRegistry.setGovernor(ctx, ROOT));
+    sim.reverts("GovernorAlreadySet", GOVERNOR, (ctx) => orgRegistry.setGovernor(ctx, ROOT));
     sim.send(GOVERNOR, (ctx) => orgRegistry.addNode(ctx, A, 2, ROOT));
-    sim.send(GOVERNOR, (ctx) => orgRegistry.setGovernor(ctx, ROOT));
+    assert.deepEqual(sim.lastEvent("NodeAdded").args.account, A);
+  });
+
+  it("hands the governor over in two steps", () => {
+    const sim = registry();
+    sim.reverts("NotAuthorized", ROOT, (ctx) => orgRegistry.setPendingGovernor(ctx, STRANGER));
+    sim.send(ROOT, (ctx) => orgRegistry.setGovernor(ctx, GOVERNOR));
+    assert.deepEqual(sim.lastEvent("GovernorUpdated").args, { governor: GOVERNOR });
+
+    // Only the governor names a successor; naming another replaces the first.
+    sim.reverts("NotAuthorized", STRANGER, (ctx) => orgRegistry.setPendingGovernor(ctx, STRANGER));
+    sim.send(GOVERNOR, (ctx) => orgRegistry.setPendingGovernor(ctx, STRANGER));
+    assert.deepEqual(sim.lastEvent("PendingGovernorUpdated").args, { pendingGovernor: STRANGER });
+    sim.send(GOVERNOR, (ctx) => orgRegistry.setPendingGovernor(ctx, ROOT));
+
+    // The pending one holds nothing until it accepts; the governor keeps everything.
+    sim.reverts("NotAuthorized", ROOT, (ctx) => orgRegistry.addNode(ctx, A, 2, ROOT));
+    sim.reverts("NotPendingGovernor", STRANGER, (ctx) => orgRegistry.acceptGovernor(ctx));
+    sim.reverts("NotPendingGovernor", GOVERNOR, (ctx) => orgRegistry.acceptGovernor(ctx));
+    sim.send(GOVERNOR, (ctx) => orgRegistry.addNode(ctx, A, 2, ROOT));
+
+    sim.send(ROOT, (ctx) => orgRegistry.acceptGovernor(ctx));
+    assert.deepEqual(sim.lastEvent("GovernorUpdated").args, { governor: ROOT });
     assert.equal(sim.world.orgRegistry.governor, ROOT);
+    assert.equal(sim.world.orgRegistry.pendingGovernor, ZERO_ADDRESS);
+    sim.reverts("NotAuthorized", GOVERNOR, (ctx) => orgRegistry.addNode(ctx, B, 2, ROOT));
+    sim.reverts("NotPendingGovernor", ROOT, (ctx) => orgRegistry.acceptGovernor(ctx));
   });
 
   it("rejects a duplicate node and an unknown parent", () => {
