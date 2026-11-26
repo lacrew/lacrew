@@ -85,7 +85,7 @@ const samples: CrewSampleRun[] = [
     // purpose — a sample that triaged a live PR would be reasoning about
     // somebody's in-flight work, and the flow's own merge path is refused
     // either way.
-    input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+    input: { owner: "lacrew", repo: "lacrew", number: 94 },
     summary:
       "Reads one public pull request through the GitHub connector, classifies it, and routes the verdict.",
     safety:

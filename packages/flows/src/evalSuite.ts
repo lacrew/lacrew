@@ -77,7 +77,7 @@ const botPullRequest = {
  * the connector is registered to accept.
  */
 const FIX_INPUT = {
-  owner: "marc-aurele-besner",
+  owner: "lacrew",
   repo: "lacrew",
   number: 94,
   branch: "renovate/viem-2.x",
@@ -195,7 +195,7 @@ const scenarios: FlowEvalScenario[] = [
     flow: "bot-pr-triage",
     blueprint: "github-experts",
     asAgent: "reviewer",
-    input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+    input: { owner: "lacrew", repo: "lacrew", number: 94 },
     mocks: {
       tools: { "github.get_pull_request": { result: botPullRequest } },
       model: [{ when: "MERGE (safe, CI green", reply: "MERGE" }],
@@ -219,7 +219,7 @@ const scenarios: FlowEvalScenario[] = [
     flow: "bot-pr-triage",
     blueprint: "github-experts",
     asAgent: "reviewer",
-    input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+    input: { owner: "lacrew", repo: "lacrew", number: 94 },
     mocks: {
       tools: {
         "github.get_pull_request": { result: botPullRequest },
@@ -250,7 +250,7 @@ const scenarios: FlowEvalScenario[] = [
     flow: "bot-pr-triage",
     blueprint: "github-experts",
     asAgent: "reviewer",
-    input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+    input: { owner: "lacrew", repo: "lacrew", number: 94 },
     mocks: {
       tools: { "github.get_pull_request": { result: botPullRequest } },
       model: [{ when: "MERGE (safe, CI green", reply: "REJECT" }],
@@ -269,7 +269,7 @@ const scenarios: FlowEvalScenario[] = [
     flow: "bot-pr-triage",
     blueprint: "github-experts",
     asAgent: "reviewer",
-    input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+    input: { owner: "lacrew", repo: "lacrew", number: 94 },
     mocks: {
       tools: {
         "github.get_pull_request": { result: botPullRequest },
@@ -296,7 +296,7 @@ const scenarios: FlowEvalScenario[] = [
     flow: "bot-pr-triage",
     blueprint: "github-experts",
     asAgent: "reviewer",
-    input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+    input: { owner: "lacrew", repo: "lacrew", number: 94 },
     mocks: {
       tools: {
         "github.get_pull_request": { result: botPullRequest },

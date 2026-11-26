@@ -1,6 +1,6 @@
 import type { BaseLayoutProps } from "fumadocs-ui/layouts/shared";
 
-export const repoUrl = "https://github.com/marc-aurele-besner/lacrew";
+export const repoUrl = "https://github.com/lacrew/lacrew";
 
 export function baseOptions(): BaseLayoutProps {
   return {

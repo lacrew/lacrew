@@ -48,7 +48,7 @@ const scenario: FlowEvalScenario = {
   flow: "bot-pr-triage", // template id, definition id, or `definition:`
   blueprint: "github-experts", // binds {{crew.*}} / {{target.*}}
   asAgent: "reviewer", // the seat the run executes as
-  input: { owner: "marc-aurele-besner", repo: "lacrew", number: 94 },
+  input: { owner: "lacrew", repo: "lacrew", number: 94 },
 
   mocks: {
     // The far side of every connector route the run touches.
@@ -73,7 +73,7 @@ const scenario: FlowEvalScenario = {
 ```
 
 The suite that ships lives in
-[`packages/flows/src/evalSuite.ts`](https://github.com/marc-aurele-besner/lacrew/blob/main/packages/flows/src/evalSuite.ts).
+[`packages/flows/src/evalSuite.ts`](https://github.com/lacrew/lacrew/blob/main/packages/flows/src/evalSuite.ts).
 Add a scenario there and it runs in CI on the next PR.
 
 ## The assertions

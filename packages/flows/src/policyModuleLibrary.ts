@@ -40,7 +40,7 @@ const timeWindow: PolicyModuleListing = {
       "Ships with the protocol and is covered by contracts/test/TimeWindowPolicy.sol and SessionTimeWindow.t.sol. The Phase 1 external audit (F1.4) covers it with the rest of the enforcement path.",
   },
   sourceUrl:
-    "https://github.com/marc-aurele-besner/lacrew/blob/main/contracts/src/policies/TimeWindowPolicy.sol",
+    "https://github.com/lacrew/lacrew/blob/main/contracts/src/policies/TimeWindowPolicy.sol",
   tags: ["policy", "guardrail", "time"],
 };
 

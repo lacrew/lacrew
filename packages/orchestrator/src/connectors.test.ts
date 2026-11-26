@@ -64,13 +64,13 @@ test("a read route calls the registered URL with the credential from env", async
   });
 
   const result = await registry.call("github.get_pull_request", {
-    owner: "marc-aurele-besner",
+    owner: "lacrew",
     repo: "lacrew",
     number: 7,
   });
 
   assert.equal(calls.length, 1);
-  assert.equal(calls[0]!.url, "https://api.github.com/repos/marc-aurele-besner/lacrew/pulls/7");
+  assert.equal(calls[0]!.url, "https://api.github.com/repos/lacrew/lacrew/pulls/7");
   const headers = calls[0]!.init.headers as Record<string, string>;
   assert.equal(headers.authorization, "Bearer ghp_secret");
   assert.equal(result.ok, true);

@@ -27,7 +27,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const content = join(root, "content");
 const reference = join(content, "reference");
 const repoRoot = join(root, "..", "..");
-const repoBlob = "https://github.com/marc-aurele-besner/lacrew/blob/main";
+const repoBlob = "https://github.com/lacrew/lacrew/blob/main";
 
 /** The TypeDoc entry points, named after the package they document. */
 const modules = [
