@@ -27,6 +27,8 @@ contract OrgRegistry is IOrgRegistry {
     mapping(address => uint64) public override generationOf;
     /// @notice When non-zero, only this address may mutate the tree (GovernanceModule).
     address public governor;
+    /// @notice Address named by the governor to take over; it has no power until it accepts.
+    address public pendingGovernor;
 
     /// @notice Max direct children per node. Bounds `removeNode` (re-parents every
     ///         child) and `_removeFromParent` (linear sibling scan) under the block gas limit.
@@ -39,6 +41,8 @@ contract OrgRegistry is IOrgRegistry {
     event NodeReparented(address indexed account, address indexed oldParent, address indexed newParent);
     event NodeActiveUpdated(address indexed account, bool active);
     event RootRotated(address indexed oldRoot, address indexed newRoot);
+    event GovernorUpdated(address indexed governor);
+    event PendingGovernorUpdated(address indexed pendingGovernor);
 
     error NodeAlreadyExists(address account);
     error NodeNotFound(address account);
@@ -47,6 +51,8 @@ contract OrgRegistry is IOrgRegistry {
     error CyclicParent(address account, address newParent);
     error NotAuthorized(address caller);
     error GovernorAlreadySet();
+    /// @dev `acceptGovernor` was called by an address that is not the pending governor.
+    error NotPendingGovernor(address caller);
     error ZeroAddress();
     error TooManyChildren(address parent);
     error MaxDepthExceeded(address account);
@@ -75,15 +81,34 @@ contract OrgRegistry is IOrgRegistry {
         return _children[parent];
     }
 
-    /// @notice Bind constitutional authority. Callable once by root (or current governor).
+    /// @notice Bind constitutional authority, once, by the root. Handing it on
+    ///         afterwards is two steps: `setPendingGovernor`, then `acceptGovernor`.
     function setGovernor(address governor_) external {
         if (governor_ == address(0)) revert ZeroAddress();
-        if (governor != address(0)) {
-            if (msg.sender != governor) revert NotAuthorized(msg.sender);
-        } else if (msg.sender != root) {
-            revert NotAuthorized(msg.sender);
-        }
+        if (governor != address(0)) revert GovernorAlreadySet();
+        if (msg.sender != root) revert NotAuthorized(msg.sender);
         governor = governor_;
+        emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Name the address that may take over governance. Current governor only;
+    ///         naming another address replaces the pending one, and the zero address
+    ///         cancels it. The governor keeps every power until the pending address calls
+    ///         `acceptGovernor`, so a wrong address is corrected by naming the right one.
+    function setPendingGovernor(address pending) external {
+        if (governor == address(0) || msg.sender != governor) revert NotAuthorized(msg.sender);
+        pendingGovernor = pending;
+        emit PendingGovernorUpdated(pending);
+    }
+
+    /// @notice Complete the hand-over: only the pending governor may call it.
+    function acceptGovernor() external {
+        if (pendingGovernor == address(0) || msg.sender != pendingGovernor) {
+            revert NotPendingGovernor(msg.sender);
+        }
+        governor = msg.sender;
+        pendingGovernor = address(0);
+        emit GovernorUpdated(msg.sender);
     }
 
     /// @notice Hand the root node to `newRoot`, the recovery path for a lost or

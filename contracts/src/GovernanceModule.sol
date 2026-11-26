@@ -187,6 +187,15 @@ contract GovernanceModule {
     ///      this module, it is never Low tier — it always passes the human quorum, the
     ///      timelock, and the veto window.
     bytes4 public constant SET_GOVERNOR_SELECTOR = bytes4(keccak256("setGovernor(address)"));
+    /// @notice `setPendingGovernor(address)` — how a governed contract's current governor
+    ///         names its successor, the first step of a two-step hand-over.
+    /// @dev Naming the successor is moving governance, so it is High tier like `setGovernor`.
+    bytes4 public constant SET_PENDING_GOVERNOR_SELECTOR = bytes4(keccak256("setPendingGovernor(address)"));
+    /// @notice `acceptGovernor()` — the second step: this module, named pending governor
+    ///         of a contract, takes governance of it by a proposal that calls it there.
+    /// @dev Taking a contract under this module's authority changes who can reconfigure
+    ///      it and the electorate that holds that power, so it is High tier too.
+    bytes4 public constant ACCEPT_GOVERNOR_SELECTOR = bytes4(keccak256("acceptGovernor()"));
     /// @notice `rotateRoot(address)` — OrgRegistry's and SessionRegistry's root handover.
     /// @dev Replacing the root moves the tree's top, the fallback resolve authority and
     ///      session issuance, so a proposal calling it directly is High tier.
@@ -481,7 +490,7 @@ contract GovernanceModule {
     /// @notice Allow or refuse a function selector on the low tier. A governor transfer
     ///         can never be allow-listed.
     function setLowTierSelector(bytes4 selector, bool allowed) external onlyRootOrGovernance {
-        if (allowed && selector == SET_GOVERNOR_SELECTOR) revert GovernorTransferNotHighTier();
+        if (allowed && _isGovernorTransfer(selector)) revert GovernorTransferNotHighTier();
         lowTierSelector[selector] = allowed;
         emit LowTierSelectorUpdated(selector, allowed);
     }
@@ -520,7 +529,7 @@ contract GovernanceModule {
         if (target == address(this) && tier != Tier.High) revert SelfTargetNotHighTier();
         if (tier != Tier.High && data.length >= 4) {
             bytes4 selector = bytes4(data[:4]);
-            if (selector == SET_GOVERNOR_SELECTOR) revert GovernorTransferNotHighTier();
+            if (_isGovernorTransfer(selector)) revert GovernorTransferNotHighTier();
             if (selector == ROTATE_ROOT_SELECTOR || selector == SET_ISSUER_SELECTOR) {
                 revert RootAuthorityNotHighTier();
             }
@@ -557,6 +566,13 @@ contract GovernanceModule {
         emit ProposalCreated(proposalId, msg.sender, tier, target, actionHash);
     }
 
+    /// @dev Every step of moving a governed contract's governance: bind, name a successor,
+    ///      accept. None of them may ride the low tier.
+    function _isGovernorTransfer(bytes4 selector) private pure returns (bool) {
+        return selector == SET_GOVERNOR_SELECTOR || selector == SET_PENDING_GOVERNOR_SELECTOR
+            || selector == ACCEPT_GOVERNOR_SELECTOR;
+    }
+
     /// @dev What may ride the low tier: never this module, never a governor transfer,
     ///      and otherwise only an allow-listed selector. A hire may not seat a
     ///      `HumanRoot` node, which the router would accept as a final approver.
@@ -564,7 +580,7 @@ contract GovernanceModule {
         if (target == address(this)) revert SelfTargetNotHighTier();
         if (data.length < 4) revert ActionNotLowTier(bytes4(0));
         bytes4 selector = bytes4(data[:4]);
-        if (selector == SET_GOVERNOR_SELECTOR) revert GovernorTransferNotHighTier();
+        if (_isGovernorTransfer(selector)) revert GovernorTransferNotHighTier();
         if (!lowTierSelector[selector]) revert ActionNotLowTier(selector);
         if (
             selector == ADD_NODE_SELECTOR

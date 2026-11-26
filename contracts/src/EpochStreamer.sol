@@ -20,6 +20,8 @@ contract EpochStreamer {
     address public operator;
     /// @notice When non-zero, may call `setGrant` (typically GovernanceModule).
     address public governor;
+    /// @notice Address named by the governor to take over; it has no power until it accepts.
+    address public pendingGovernor;
 
     /// @notice Max grant recipients. `_runEpoch` makes one Treasury call per recipient
     ///         in a single tx, so this keeps payroll under the block gas limit.
@@ -33,6 +35,7 @@ contract EpochStreamer {
 
     event OperatorUpdated(address indexed operator);
     event GovernorUpdated(address indexed governor);
+    event PendingGovernorUpdated(address indexed pendingGovernor);
     event GrantUpdated(address indexed node, uint256 amount);
     event EpochRun(uint64 indexed epoch, uint256 recipientCount);
 
@@ -44,6 +47,8 @@ contract EpochStreamer {
     error ZeroAddress();
     error EmptySchedule();
     error GovernorAlreadySet();
+    /// @dev `acceptGovernor` was called by an address that is not the pending governor.
+    error NotPendingGovernor(address caller);
     error LengthMismatch();
     error TooManyRecipients();
 
@@ -70,12 +75,33 @@ contract EpochStreamer {
         emit OperatorUpdated(operator_);
     }
 
-    /// @notice Bind constitutional authority for grant schedule. Callable once by operator.
+    /// @notice Bind constitutional authority for grant schedule. Callable once by the operator; handing it on afterwards is
+    ///         `setPendingGovernor` then `acceptGovernor`.
     function setGovernor(address governor_) external onlyOperator {
         if (governor_ == address(0)) revert ZeroAddress();
         if (governor != address(0)) revert GovernorAlreadySet();
         governor = governor_;
         emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Name the address that may take over governance. Current governor only;
+    ///         naming another address replaces the pending one, and the zero address
+    ///         cancels it. The governor keeps every power until the pending address calls
+    ///         `acceptGovernor`, so a wrong address is corrected by naming the right one.
+    function setPendingGovernor(address pending) external {
+        if (governor == address(0) || msg.sender != governor) revert NotAuthorized(msg.sender);
+        pendingGovernor = pending;
+        emit PendingGovernorUpdated(pending);
+    }
+
+    /// @notice Complete the hand-over: only the pending governor may call it.
+    function acceptGovernor() external {
+        if (pendingGovernor == address(0) || msg.sender != pendingGovernor) {
+            revert NotPendingGovernor(msg.sender);
+        }
+        governor = msg.sender;
+        pendingGovernor = address(0);
+        emit GovernorUpdated(msg.sender);
     }
 
     /// @notice Set (or clear with amount=0) the per-epoch grant for `node`.

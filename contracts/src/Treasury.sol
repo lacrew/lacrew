@@ -30,6 +30,8 @@ contract Treasury is ITreasurySpender {
     address public spender;
     /// @notice GovernanceModule (or the deployer while bootstrapping) for setSpender / stream authorization.
     address public governor;
+    /// @notice Address named by the governor to take over; it has no power until it accepts.
+    address public pendingGovernor;
     /// @notice Optional epoch job that may call `streamAllowance`.
     address public streamer;
 
@@ -45,6 +47,7 @@ contract Treasury is ITreasurySpender {
 
     event SpenderUpdated(address indexed spender);
     event GovernorUpdated(address indexed governor);
+    event PendingGovernorUpdated(address indexed pendingGovernor);
     event StreamerUpdated(address indexed streamer);
     event Deposited(address indexed from, uint256 amount);
     event AllowanceStreamed(address indexed node, uint256 amount, uint64 epoch);
@@ -63,6 +66,9 @@ contract Treasury is ITreasurySpender {
     error NotSpender(address caller);
     error NotAuthorized(address caller);
     error ZeroAddress();
+    /// @dev `acceptGovernor` was called by an address that is not the pending governor.
+    error NotPendingGovernor(address caller);
+    error GovernorAlreadySet();
     error EnforcedPause();
     error AlreadyPaused();
     error NotPaused();
@@ -77,13 +83,34 @@ contract Treasury is ITreasurySpender {
         deployer = msg.sender;
     }
 
-    /// @notice Bind constitutional authority. The deployer binds it first; afterwards
-    ///         only the governor may rotate it.
+    /// @notice Bind constitutional authority, once, by the deployer. Handing it on
+    ///         afterwards is two steps: `setPendingGovernor`, then `acceptGovernor`.
     function setGovernor(address governor_) external {
         if (governor_ == address(0)) revert ZeroAddress();
-        _onlyGovernorOrBootstrap();
+        if (governor != address(0)) revert GovernorAlreadySet();
+        if (msg.sender != deployer) revert NotAuthorized(msg.sender);
         governor = governor_;
         emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Name the address that may take over governance. Current governor only;
+    ///         naming another address replaces the pending one, and the zero address
+    ///         cancels it. The governor keeps every power until the pending address calls
+    ///         `acceptGovernor`, so a wrong address is corrected by naming the right one.
+    function setPendingGovernor(address pending) external {
+        if (governor == address(0) || msg.sender != governor) revert NotAuthorized(msg.sender);
+        pendingGovernor = pending;
+        emit PendingGovernorUpdated(pending);
+    }
+
+    /// @notice Complete the hand-over: only the pending governor may call it.
+    function acceptGovernor() external {
+        if (pendingGovernor == address(0) || msg.sender != pendingGovernor) {
+            revert NotPendingGovernor(msg.sender);
+        }
+        governor = msg.sender;
+        pendingGovernor = address(0);
+        emit GovernorUpdated(msg.sender);
     }
 
     /// @notice Bind (or, with the zero address, unbind) the epoch job that may call

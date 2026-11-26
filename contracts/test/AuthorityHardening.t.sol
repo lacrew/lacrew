@@ -222,14 +222,74 @@ contract AuthorityHardeningTest is Test {
 
     function test_highTierCanTransferGovernor() public {
         treasury.setGovernor(address(gov));
-        bytes memory data = abi.encodeCall(Treasury.setGovernor, (stranger));
+        bytes memory data = abi.encodeCall(Treasury.setPendingGovernor, (stranger));
         vm.prank(root);
         uint256 id = gov.propose(GovernanceModule.Tier.High, address(treasury), data);
         vm.prank(root);
         gov.vote(id, true);
         // Root is the whole human electorate, so unanimity skips the timelock.
         gov.execute(id);
+        // Naming a successor moves nothing: the module governs until the successor accepts.
+        assertEq(treasury.governor(), address(gov));
+        assertEq(treasury.pendingGovernor(), stranger);
+        vm.prank(stranger);
+        treasury.acceptGovernor();
         assertEq(treasury.governor(), stranger);
+    }
+
+    function test_lowTierCannotNameOrAcceptGovernor() public {
+        bytes memory pending = abi.encodeCall(Treasury.setPendingGovernor, (stranger));
+        vm.expectRevert(GovernanceModule.GovernorTransferNotHighTier.selector);
+        vm.prank(root);
+        gov.propose(GovernanceModule.Tier.Low, address(treasury), pending);
+
+        bytes memory accept = abi.encodeCall(Treasury.acceptGovernor, ());
+        vm.expectRevert(GovernanceModule.GovernorTransferNotHighTier.selector);
+        vm.prank(root);
+        gov.propose(GovernanceModule.Tier.Low, address(treasury), accept);
+
+        // Neither can be allow-listed onto the low tier.
+        bytes4 setPending = gov.SET_PENDING_GOVERNOR_SELECTOR();
+        vm.expectRevert(GovernanceModule.GovernorTransferNotHighTier.selector);
+        vm.prank(root);
+        gov.setLowTierSelector(setPending, true);
+        bytes4 acceptSel = gov.ACCEPT_GOVERNOR_SELECTOR();
+        vm.expectRevert(GovernanceModule.GovernorTransferNotHighTier.selector);
+        vm.prank(root);
+        gov.setLowTierSelector(acceptSel, true);
+
+        // High tier carries both.
+        vm.startPrank(root);
+        gov.propose(GovernanceModule.Tier.High, address(treasury), pending);
+        gov.propose(GovernanceModule.Tier.High, address(treasury), accept);
+        vm.stopPrank();
+    }
+
+    /// @dev Governance moves to a new module in two proposals: the old module names the
+    ///      new one on the target, and the new module accepts through its own High-tier
+    ///      proposal. The old module keeps the contract until that second one executes.
+    function test_governanceMovesToNewModuleByProposals() public {
+        GovernanceModule next = new GovernanceModule(root, 2);
+        treasury.setGovernor(address(gov));
+
+        vm.startPrank(root);
+        uint256 nameId = gov.propose(
+            GovernanceModule.Tier.High, address(treasury), abi.encodeCall(Treasury.setPendingGovernor, (address(next)))
+        );
+        gov.vote(nameId, true);
+        vm.stopPrank();
+        gov.execute(nameId);
+        assertEq(treasury.governor(), address(gov));
+
+        vm.startPrank(root);
+        uint256 acceptId =
+            next.propose(GovernanceModule.Tier.High, address(treasury), abi.encodeCall(Treasury.acceptGovernor, ()));
+        next.vote(acceptId, true);
+        vm.stopPrank();
+        next.execute(acceptId);
+
+        assertEq(treasury.governor(), address(next));
+        assertEq(treasury.pendingGovernor(), address(0));
     }
 
     // ——— SessionRegistry: issuer-minted keys are bounded in lifetime ———

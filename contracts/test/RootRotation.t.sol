@@ -419,9 +419,12 @@ contract RootRotationTest is SessionWiring {
         vm.prank(root);
         s.setGovernor(address(gov));
         assertEq(s.governor(), address(gov));
-        // Once bound only the governor rebinds.
+        // The bind is once: a second one reverts for everyone, the governor included.
         vm.prank(root);
-        vm.expectRevert(abi.encodeWithSelector(SessionRegistry.NotAuthorized.selector, root));
+        vm.expectRevert(SessionRegistry.GovernorAlreadySet.selector);
+        s.setGovernor(root);
+        vm.prank(address(gov));
+        vm.expectRevert(SessionRegistry.GovernorAlreadySet.selector);
         s.setGovernor(root);
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(SessionRegistry.NotAuthorized.selector, stranger));

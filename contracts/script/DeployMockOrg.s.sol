@@ -169,6 +169,19 @@ contract DeployMockOrg is Script {
         d.gov.setQuorumYes(2);
         d.gov.setQuorumHumanYes(1);
 
+        // The marketplace was constructed with the root as governor, so governance reaches
+        // it in two steps: the root names the module, then the module accepts through a
+        // High-tier proposal. The root is still the whole human electorate here, so the
+        // unanimity fast path executes it at once; this runs before `_seatSecondHuman`.
+        d.marketplace.setPendingGovernor(address(d.gov));
+        uint256 acceptId = d.gov.propose(
+            GovernanceModule.Tier.High,
+            address(d.marketplace),
+            abi.encodeCall(MarketplacePayments.acceptGovernor, ())
+        );
+        d.gov.vote(acceptId, true);
+        d.gov.execute(acceptId);
+
         _seatSecondHuman(d, humanRoot);
 
         d.registry.setGovernor(address(d.gov));
@@ -178,7 +191,6 @@ contract DeployMockOrg is Script {
         d.epochStreamer.setGovernor(address(d.gov));
         d.whitelist.setGovernor(address(d.gov));
         d.spendCap.setGovernor(address(d.gov));
-        d.marketplace.setGovernor(address(d.gov));
     }
 
     /// @notice Seat an optional second human (`SECOND_HUMAN`) as a peer of the root.
