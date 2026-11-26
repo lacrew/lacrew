@@ -863,12 +863,15 @@ describe("multi-org host: two orgs side by side", () => {
           trigger: ids.hook,
           limit: "200",
         }).toString();
-      /** A response with the identifiers it was asked about, and the clock, taken out. */
+      /** A response with the identifiers it was asked about, and the wall clock, taken out. */
       const shape = (text: string, ids: typeof idsOfA) =>
         Object.values(ids)
           .reduce((out, id) => out.split(id.toLowerCase()).join("<id>"), text.toLowerCase())
           .replace(/\d{4}-\d{2}-\d{2}t\d{2}:\d{2}:\d{2}(\.\d+)?z/g, "<time>")
-          .replace(/"now":\d+/g, '"now":<n>');
+          .replace(/"now":\d+/g, '"now":<n>')
+          // /health counts down to the next epoch tick on the org's wall clock, so two
+          // requests a second apart differ here (605 vs 604) and, at a cron boundary, in nextAt.
+          .replace(/"(secondsuntilnext|nextat)":\d+/g, '"$1":<n>');
       const shows = (text: string, secret: string) =>
         text.toLowerCase().includes(secret.toLowerCase());
 
