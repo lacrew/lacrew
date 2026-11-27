@@ -1,5 +1,14 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": ["config:recommended"],
-  "minimumReleaseAge": "1 day"
+  "minimumReleaseAge": "1 day",
+  "packageRules": [
+    {
+      "description": "Mythril's dependencies have no wheels for Python 3.14+ yet, so keep the Mythril workflow's Python below 3.14.",
+      "matchManagers": ["github-actions"],
+      "matchFileNames": [".github/workflows/mythril.yml"],
+      "matchDepNames": ["python"],
+      "allowedVersions": "<3.14"
+    }
+  ]
 }
