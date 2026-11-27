@@ -49,6 +49,8 @@ contract SessionRegistry {
     address public humanRoot;
     /// @notice When non-zero, may set the issuer, revoke sessions and rotate the root.
     address public governor;
+    /// @notice Address named by the governor to take over; it has no power until it accepts.
+    address public pendingGovernor;
     /// @notice Org tree consulted so a delegated issuer can only mint keys for agent nodes.
     IOrgRegistry public immutable orgRegistry;
     /// @notice Optional issuer (orchestrator EOA). Defaults to humanRoot.
@@ -96,6 +98,7 @@ contract SessionRegistry {
 
     event IssuerUpdated(address indexed issuer);
     event GovernorUpdated(address indexed governor);
+    event PendingGovernorUpdated(address indexed pendingGovernor);
     event RootRotated(address indexed oldRoot, address indexed newRoot);
     event MaxIssuerTtlUpdated(uint64 maxIssuerTtl);
     event EscalationRouterUpdated(address indexed escalationRouter);
@@ -117,6 +120,9 @@ contract SessionRegistry {
     ///      active manager/worker agent node (the root, a peer human, or an unknown account).
     error IssuerAgentNotEligible(address agent);
     error ZeroAddress();
+    /// @dev `acceptGovernor` was called by an address that is not the pending governor.
+    error NotPendingGovernor(address caller);
+    error GovernorAlreadySet();
     error InvalidExpiry(uint64 expiresAt);
     error ExpiryExceedsIssuerTtl(uint64 expiresAt, uint64 maxExpiresAt);
     error ZeroTtl();
@@ -149,17 +155,34 @@ contract SessionRegistry {
         issuer = humanRoot_;
     }
 
-    /// @notice Bind governance. Callable by the root until bound, then only by the
-    ///         current governor — the same handover as every other governed contract.
+    /// @notice Bind governance, once, by the root. Handing it on afterwards is two
+    ///         steps: `setPendingGovernor`, then `acceptGovernor`.
     function setGovernor(address governor_) external {
         if (governor_ == address(0)) revert ZeroAddress();
-        if (governor != address(0)) {
-            if (msg.sender != governor) revert NotAuthorized(msg.sender);
-        } else if (msg.sender != humanRoot) {
-            revert NotAuthorized(msg.sender);
-        }
+        if (governor != address(0)) revert GovernorAlreadySet();
+        if (msg.sender != humanRoot) revert NotAuthorized(msg.sender);
         governor = governor_;
         emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Name the address that may take over governance. Current governor only;
+    ///         naming another address replaces the pending one, and the zero address
+    ///         cancels it. The governor keeps every power until the pending address calls
+    ///         `acceptGovernor`, so a wrong address is corrected by naming the right one.
+    function setPendingGovernor(address pending) external {
+        if (governor == address(0) || msg.sender != governor) revert NotAuthorized(msg.sender);
+        pendingGovernor = pending;
+        emit PendingGovernorUpdated(pending);
+    }
+
+    /// @notice Complete the hand-over: only the pending governor may call it.
+    function acceptGovernor() external {
+        if (pendingGovernor == address(0) || msg.sender != pendingGovernor) {
+            revert NotPendingGovernor(msg.sender);
+        }
+        governor = msg.sender;
+        pendingGovernor = address(0);
+        emit GovernorUpdated(msg.sender);
     }
 
     /// @notice Hand the root key to `newRoot`. Governor-only once one is bound (the

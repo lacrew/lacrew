@@ -40,6 +40,19 @@ export const EXECUTION_WINDOW = 14n * 86_400n;
 
 /** `bytes4(keccak256("setGovernor(address)"))`. */
 export const SET_GOVERNOR_SELECTOR = "0xc42cf535";
+/** `bytes4(keccak256("setPendingGovernor(address)"))`: naming a successor, always High tier. */
+export const SET_PENDING_GOVERNOR_SELECTOR = "0xf235757f";
+/** `bytes4(keccak256("acceptGovernor()"))`: taking a contract under this module, always High tier. */
+export const ACCEPT_GOVERNOR_SELECTOR = "0xe58bb639";
+
+/** Every step of moving a governed contract's governance: bind, name a successor, accept. */
+function isGovernorTransfer(selector: string): boolean {
+  return (
+    selector === SET_GOVERNOR_SELECTOR ||
+    selector === SET_PENDING_GOVERNOR_SELECTOR ||
+    selector === ACCEPT_GOVERNOR_SELECTOR
+  );
+}
 /** `bytes4(keccak256("rotateRoot(address)"))`. */
 export const ROTATE_ROOT_SELECTOR = "0x611ab368";
 /** `bytes4(keccak256("rotateRoot(address,address[])"))`: the module's own rotation. */
@@ -486,7 +499,7 @@ export function setLowTierDelay(ctx: Ctx, lowTierDelay_: bigint): void {
 export function setLowTierSelector(ctx: Ctx, selector_: Hex, allowed: boolean): void {
   onlyRootOrGovernance(ctx);
   const selector = selector_.toLowerCase();
-  if (allowed && selector === SET_GOVERNOR_SELECTOR) {
+  if (allowed && isGovernorTransfer(selector)) {
     throw new SimRevert("GovernorTransferNotHighTier");
   }
   lowTierSelectors(ctx.world.governance)[selector] = allowed;
@@ -526,7 +539,7 @@ export function propose(ctx: Ctx, tier: number, target_: Address, data: Hex): bi
   if (target === self && tier !== Tier.High) throw new SimRevert("SelfTargetNotHighTier");
   if (tier !== Tier.High && byteLength(data) >= 4) {
     const selector = data.slice(0, 10).toLowerCase();
-    if (selector === SET_GOVERNOR_SELECTOR) throw new SimRevert("GovernorTransferNotHighTier");
+    if (isGovernorTransfer(selector)) throw new SimRevert("GovernorTransferNotHighTier");
     if (selector === ROTATE_ROOT_SELECTOR || selector === SET_ISSUER_SELECTOR) {
       throw new SimRevert("RootAuthorityNotHighTier");
     }
@@ -577,7 +590,7 @@ function requireLowTierAction(ctx: Ctx, target: Address, data: Hex): void {
   const zero = "0x00000000";
   if (byteLength(data) < 4) throw new SimRevert("ActionNotLowTier", { selector: zero });
   const selector = data.slice(0, 10).toLowerCase();
-  if (selector === SET_GOVERNOR_SELECTOR) throw new SimRevert("GovernorTransferNotHighTier");
+  if (isGovernorTransfer(selector)) throw new SimRevert("GovernorTransferNotHighTier");
   if (!lowTierSelector(ctx, selector as Hex)) {
     throw new SimRevert("ActionNotLowTier", { selector });
   }

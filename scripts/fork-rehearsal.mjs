@@ -237,10 +237,16 @@ async function rehearse(chain) {
     const other = feeRecipient.address;
     const bootstrap = [
       [org.OrgRegistry, "setGovernor(address)", other],
+      [org.OrgRegistry, "setPendingGovernor(address)", other],
       [org.SessionRegistry, "setGovernor(address)", other],
+      [org.SessionRegistry, "setPendingGovernor(address)", other],
       [org.Treasury, "setGovernor(address)", other],
+      [org.Treasury, "setPendingGovernor(address)", other],
       [org.Treasury, "setStreamer(address)", other],
       [org.EscalationRouter, "setGovernor(address)", other],
+      [org.EscalationRouter, "setPendingGovernor(address)", other],
+      [org.WhitelistPolicy, "setPendingGovernor(address)", other],
+      [org.SpendCapPolicy, "setPendingGovernor(address)", other],
       [org.EscalationRouter, "setTreasury(address)", other],
       [org.WhitelistPolicy, "setAllowed(address,bool)", other, "true"],
       [org.SpendCapPolicy, "setAgentCap(address,uint256)", other, "1"],
@@ -265,7 +271,7 @@ async function rehearse(chain) {
     const fromOther = sh("cast", [
       "call",
       proto.MarketplacePayments,
-      "setGovernor(address)",
+      "setPendingGovernor(address)",
       other,
       "--rpc-url",
       rpc,
@@ -274,8 +280,19 @@ async function rehearse(chain) {
     ]);
     check(
       fromOther.status !== 0,
-      "deployer is refused by setGovernor(address) on MarketplacePayments",
+      "deployer is refused by setPendingGovernor(address) on MarketplacePayments",
     );
+    // Nobody but a named pending governor may accept; with none named, everyone is refused.
+    const acceptNone = sh("cast", [
+      "call",
+      proto.MarketplacePayments,
+      "acceptGovernor()",
+      "--rpc-url",
+      rpc,
+      "--from",
+      deployer.address,
+    ]);
+    check(acceptNone.status !== 0, "acceptGovernor() on MarketplacePayments refuses a stranger");
   } finally {
     anvil.kill();
   }

@@ -44,6 +44,8 @@ contract MarketplacePayments {
 
     /// @notice May change the fee, the fee recipient, and itself.
     address public governor;
+    /// @notice Address named by the governor to take over; it has no power until it accepts.
+    address public pendingGovernor;
 
     /// @notice EscalationRouter permitted to buy on behalf of an org.
     /// @dev The router settles a call by approving the target for the intent's value, so an
@@ -88,12 +90,15 @@ contract MarketplacePayments {
     event FeeUpdated(uint16 feeBps);
     event FeeRecipientUpdated(address indexed feeRecipient);
     event GovernorUpdated(address indexed governor);
+    event PendingGovernorUpdated(address indexed pendingGovernor);
     event SettlementRouterUpdated(address indexed settlementRouter);
     event UnallocatedSwept(address indexed to, uint256 amount);
 
     error ZeroAddress();
     error FeeTooHigh(uint16 requested, uint16 max);
     error NotGovernor(address caller);
+    /// @dev `acceptGovernor` was called by an address that is not the pending governor.
+    error NotPendingGovernor(address caller);
     error NotSeller(address caller, address seller);
     error ListingNotFound(bytes32 listingId);
     error ListingInactive(bytes32 listingId);
@@ -255,11 +260,24 @@ contract MarketplacePayments {
         emit UnallocatedSwept(to, amount);
     }
 
-    function setGovernor(address governor_) external {
-        _onlyGovernor();
-        if (governor_ == address(0)) revert ZeroAddress();
-        governor = governor_;
-        emit GovernorUpdated(governor_);
+    /// @notice Name the address that may take over governance. Current governor only;
+    ///         naming another address replaces the pending one, and the zero address
+    ///         cancels it. The governor keeps every power until the pending address calls
+    ///         `acceptGovernor`, so a wrong address is corrected by naming the right one.
+    function setPendingGovernor(address pending) external {
+        if (governor == address(0) || msg.sender != governor) revert NotGovernor(msg.sender);
+        pendingGovernor = pending;
+        emit PendingGovernorUpdated(pending);
+    }
+
+    /// @notice Complete the hand-over: only the pending governor may call it.
+    function acceptGovernor() external {
+        if (pendingGovernor == address(0) || msg.sender != pendingGovernor) {
+            revert NotPendingGovernor(msg.sender);
+        }
+        governor = msg.sender;
+        pendingGovernor = address(0);
+        emit GovernorUpdated(msg.sender);
     }
 
     // ——— Views ———

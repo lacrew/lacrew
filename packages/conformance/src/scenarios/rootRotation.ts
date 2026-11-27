@@ -59,11 +59,29 @@ export const rootRotationScenarios: Scenario[] = [
     // A bound governor can replace the issuer and revoke without the root.
     b.reverts("ZeroAddress", "human2", "@sessions", "setGovernor", ["zero"]);
     b.call("human2", "@sessions", "setGovernor", ["stranger"], { events: ["GovernorUpdated"] });
-    b.reverts("NotAuthorized", "human2", "@sessions", "setGovernor", ["human2"]);
+    b.reverts("GovernorAlreadySet", "human2", "@sessions", "setGovernor", ["human2"]);
+    b.reverts("GovernorAlreadySet", "stranger", "@sessions", "setGovernor", ["human2"]);
     b.reverts("NotAuthorized", "human2", "@sessions", "rotateRoot", ["root"]);
     b.call("stranger", "@sessions", "setIssuer", ["issuer"], { events: ["IssuerUpdated"] });
     b.call("stranger", "@sessions", "revoke", [BigInt(id)], { events: ["SessionRevoked"] });
     b.expect({ keys: [{ agent: "worker", key: "key", valid: false }] });
+
+    // A hand-over is two steps: only the governor names a pending one, naming another
+    // replaces the first, and the pending one has no power until it accepts.
+    b.reverts("NotAuthorized", "human2", "@sessions", "setPendingGovernor", ["human2"]);
+    b.call("stranger", "@sessions", "setPendingGovernor", ["root"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.call("stranger", "@sessions", "setPendingGovernor", ["issuer"], {
+      events: ["PendingGovernorUpdated"],
+    });
+    b.reverts("NotPendingGovernor", "root", "@sessions", "acceptGovernor", []);
+    b.reverts("NotPendingGovernor", "stranger", "@sessions", "acceptGovernor", []);
+    b.call("stranger", "@sessions", "setIssuer", ["stranger"], { events: ["IssuerUpdated"] });
+    b.call("issuer", "@sessions", "acceptGovernor", [], { events: ["GovernorUpdated"] });
+    b.reverts("NotAuthorized", "stranger", "@sessions", "setIssuer", ["issuer"]);
+    b.call("issuer", "@sessions", "setIssuer", ["issuer"], { events: ["IssuerUpdated"] });
+    b.reverts("NotPendingGovernor", "issuer", "@sessions", "acceptGovernor", []);
   }),
 
   governed("a compromised root is rotated by a High-tier proposal", (b) => {

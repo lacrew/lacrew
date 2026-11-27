@@ -80,6 +80,13 @@ export const orgRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "addNode",
     "inputs": [
       {
@@ -195,6 +202,19 @@ export const orgRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "removeNode",
     "inputs": [
       {
@@ -282,6 +302,32 @@ export const orgRegistryAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "event",
+    "name": "GovernorUpdated",
+    "inputs": [
+      {
+        "name": "governor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "event",
     "name": "NodeActiveUpdated",
     "inputs": [
@@ -362,6 +408,19 @@ export const orgRegistryAbi = [
       },
       {
         "name": "newParent",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -488,6 +547,17 @@ export const orgRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "NotPendingGovernor",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TooManyChildren",
     "inputs": [
       {
@@ -524,6 +594,13 @@ export const treasuryAbi = [
         "internalType": "address"
       }
     ],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -651,6 +728,19 @@ export const treasuryAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "refundAllowance",
     "inputs": [
       {
@@ -691,6 +781,19 @@ export const treasuryAbi = [
     "inputs": [
       {
         "name": "governor_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
         "type": "address",
         "internalType": "address"
       }
@@ -1013,6 +1116,19 @@ export const treasuryAbi = [
   },
   {
     "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SpenderUpdated",
     "inputs": [
       {
@@ -1081,6 +1197,11 @@ export const treasuryAbi = [
   },
   {
     "type": "error",
+    "name": "GovernorAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InsufficientAllowance",
     "inputs": [
       {
@@ -1131,6 +1252,17 @@ export const treasuryAbi = [
     "type": "error",
     "name": "NotPaused",
     "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotPendingGovernor",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
   },
   {
     "type": "error",
@@ -1230,6 +1362,13 @@ export const escalationRouterAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -1446,6 +1585,19 @@ export const escalationRouterAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "policy",
     "inputs": [],
     "outputs": [
@@ -1651,6 +1803,19 @@ export const escalationRouterAbi = [
       },
       {
         "name": "valueRecorder_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
         "type": "address",
         "internalType": "address"
       }
@@ -1979,6 +2144,19 @@ export const escalationRouterAbi = [
   },
   {
     "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "RateRecorderUpdated",
     "inputs": [
       {
@@ -2086,6 +2264,11 @@ export const escalationRouterAbi = [
   {
     "type": "error",
     "name": "EnforcedPause",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "GovernorAlreadySet",
     "inputs": []
   },
   {
@@ -2231,6 +2414,17 @@ export const escalationRouterAbi = [
   },
   {
     "type": "error",
+    "name": "NotPendingGovernor",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ProtectedTarget",
     "inputs": [
       {
@@ -2372,6 +2566,19 @@ export const governanceModuleAbi = [
   },
   {
     "type": "function",
+    "name": "ACCEPT_GOVERNOR_SELECTOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "ADD_NODE_SELECTOR",
     "inputs": [],
     "outputs": [
@@ -2464,6 +2671,19 @@ export const governanceModuleAbi = [
   {
     "type": "function",
     "name": "SET_ISSUER_SELECTOR",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "bytes4",
+        "internalType": "bytes4"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "SET_PENDING_GOVERNOR_SELECTOR",
     "inputs": [],
     "outputs": [
       {
@@ -3722,6 +3942,13 @@ export const spendCapPolicyAbi = [
   },
   {
     "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "admin",
     "inputs": [],
     "outputs": [
@@ -3852,6 +4079,19 @@ export const spendCapPolicyAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setAgentCap",
     "inputs": [
       {
@@ -3874,6 +4114,19 @@ export const spendCapPolicyAbi = [
     "inputs": [
       {
         "name": "governor_",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
         "type": "address",
         "internalType": "address"
       }
@@ -3914,6 +4167,19 @@ export const spendCapPolicyAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "GovernorAlreadySet",
     "inputs": []
@@ -3921,6 +4187,17 @@ export const spendCapPolicyAbi = [
   {
     "type": "error",
     "name": "NotAuthorized",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotPendingGovernor",
     "inputs": [
       {
         "name": "caller",
@@ -3940,6 +4217,13 @@ export const whitelistPolicyAbi = [
   {
     "type": "constructor",
     "inputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
     "stateMutability": "nonpayable"
   },
   {
@@ -4023,6 +4307,19 @@ export const whitelistPolicyAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "setAllowed",
     "inputs": [
       {
@@ -4053,11 +4350,37 @@ export const whitelistPolicyAbi = [
     "stateMutability": "nonpayable"
   },
   {
+    "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
     "type": "event",
     "name": "GovernorUpdated",
     "inputs": [
       {
         "name": "governor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
         "type": "address",
         "indexed": true,
         "internalType": "address"
@@ -4092,6 +4415,17 @@ export const whitelistPolicyAbi = [
   {
     "type": "error",
     "name": "NotAuthorized",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotPendingGovernor",
     "inputs": [
       {
         "name": "caller",
@@ -5744,6 +6078,13 @@ export const epochStreamerAbi = [
   },
   {
     "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "currentEpoch",
     "inputs": [],
     "outputs": [
@@ -5866,6 +6207,19 @@ export const epochStreamerAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "recipients",
     "inputs": [],
     "outputs": [
@@ -5954,6 +6308,19 @@ export const epochStreamerAbi = [
   },
   {
     "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "treasury",
     "inputs": [],
     "outputs": [
@@ -6030,6 +6397,19 @@ export const epochStreamerAbi = [
     "anonymous": false
   },
   {
+    "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
     "type": "error",
     "name": "EmptySchedule",
     "inputs": []
@@ -6085,6 +6465,17 @@ export const epochStreamerAbi = [
   {
     "type": "error",
     "name": "NotOperator",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotPendingGovernor",
     "inputs": [
       {
         "name": "caller",
@@ -6165,6 +6556,13 @@ export const sessionRegistryAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -6603,6 +7001,19 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "rateLimits",
     "inputs": [
       {
@@ -6816,6 +7227,19 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "function",
+    "name": "setPendingGovernor",
+    "inputs": [
+      {
+        "name": "pending",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
     "name": "withinTimeWindow",
     "inputs": [
       {
@@ -6886,6 +7310,19 @@ export const sessionRegistryAbi = [
         "type": "uint64",
         "indexed": false,
         "internalType": "uint64"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
       }
     ],
     "anonymous": false
@@ -7025,6 +7462,11 @@ export const sessionRegistryAbi = [
   },
   {
     "type": "error",
+    "name": "GovernorAlreadySet",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "InvalidExpiry",
     "inputs": [
       {
@@ -7091,6 +7533,17 @@ export const sessionRegistryAbi = [
   {
     "type": "error",
     "name": "NotAuthorized",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotPendingGovernor",
     "inputs": [
       {
         "name": "caller",
@@ -7195,6 +7648,13 @@ export const marketplacePaymentsAbi = [
       }
     ],
     "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "acceptGovernor",
+    "inputs": [],
+    "outputs": [],
+    "stateMutability": "nonpayable"
   },
   {
     "type": "function",
@@ -7346,6 +7806,19 @@ export const marketplacePaymentsAbi = [
   },
   {
     "type": "function",
+    "name": "pendingGovernor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "purchase",
     "inputs": [
       {
@@ -7490,10 +7963,10 @@ export const marketplacePaymentsAbi = [
   },
   {
     "type": "function",
-    "name": "setGovernor",
+    "name": "setPendingGovernor",
     "inputs": [
       {
-        "name": "governor_",
+        "name": "pending",
         "type": "address",
         "internalType": "address"
       }
@@ -7726,6 +8199,19 @@ export const marketplacePaymentsAbi = [
   },
   {
     "type": "event",
+    "name": "PendingGovernorUpdated",
+    "inputs": [
+      {
+        "name": "pendingGovernor",
+        "type": "address",
+        "indexed": true,
+        "internalType": "address"
+      }
+    ],
+    "anonymous": false
+  },
+  {
+    "type": "event",
     "name": "SettlementRouterUpdated",
     "inputs": [
       {
@@ -7848,6 +8334,17 @@ export const marketplacePaymentsAbi = [
   {
     "type": "error",
     "name": "NotGovernor",
+    "inputs": [
+      {
+        "name": "caller",
+        "type": "address",
+        "internalType": "address"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "NotPendingGovernor",
     "inputs": [
       {
         "name": "caller",

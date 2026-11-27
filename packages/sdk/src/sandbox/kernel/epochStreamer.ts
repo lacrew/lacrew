@@ -21,6 +21,8 @@ export interface EpochStreamerState {
   epochDuration: bigint;
   operator: Address;
   governor: Address;
+  /** Named by the governor to take over; holds no power until it accepts. */
+  pendingGovernor?: Address;
   currentEpoch: bigint;
   grantAmount: Record<Address, bigint>;
   recipients: Address[];
@@ -83,6 +85,31 @@ export function setGovernor(ctx: Ctx, governor_: Address): void {
   if (state.governor !== ZERO_ADDRESS) throw new SimRevert("GovernorAlreadySet");
   state.governor = governor;
   emit(ctx, ctx.world.addresses.epochStreamer, CONTRACT, "GovernorUpdated", { governor });
+}
+
+/** Name the address that may take over governance: the current governor only; zero cancels. */
+export function setPendingGovernor(ctx: Ctx, pending_: Address): void {
+  const state = ctx.world.epochStreamer;
+  const pending = addr(pending_);
+  if (state.governor === ZERO_ADDRESS || ctx.sender !== state.governor) {
+    throw new SimRevert("NotAuthorized", { caller: ctx.sender });
+  }
+  state.pendingGovernor = pending;
+  emit(ctx, ctx.world.addresses.epochStreamer, CONTRACT, "PendingGovernorUpdated", {
+    pendingGovernor: pending,
+  });
+}
+
+/** Complete the hand-over: only the pending governor may call it. */
+export function acceptGovernor(ctx: Ctx): void {
+  const state = ctx.world.epochStreamer;
+  const pending = state.pendingGovernor ?? ZERO_ADDRESS;
+  if (pending === ZERO_ADDRESS || ctx.sender !== pending) {
+    throw new SimRevert("NotPendingGovernor", { caller: ctx.sender });
+  }
+  state.governor = pending;
+  state.pendingGovernor = ZERO_ADDRESS;
+  emit(ctx, ctx.world.addresses.epochStreamer, CONTRACT, "GovernorUpdated", { governor: pending });
 }
 
 export function setGrant(ctx: Ctx, node: Address, amount: bigint): void {

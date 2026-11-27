@@ -611,7 +611,12 @@ describe("kernel EscalationRouter: wiring", () => {
     sim.reverts("ZeroAddress", STRANGER, (ctx) => escalationRouter.setGovernor(ctx, ZERO_ADDRESS));
 
     sim.send(ROOT, (ctx) => escalationRouter.setGovernor(ctx, governor));
-    for (const set of setters) sim.reverts("NotAuthorized", ROOT, set);
+    for (const set of setters.slice(0, -1)) sim.reverts("NotAuthorized", ROOT, set);
+    // The bind is once: a second one reverts for the deployer and the governor alike.
+    sim.reverts("GovernorAlreadySet", ROOT, (ctx) => escalationRouter.setGovernor(ctx, governor));
+    sim.reverts("GovernorAlreadySet", governor, (ctx) =>
+      escalationRouter.setGovernor(ctx, governor),
+    );
     sim.send(governor, (ctx) => escalationRouter.setNodePolicy(ctx, WORKER, TARGET));
     assert.equal(sim.world.escalationRouter.policyOf[WORKER], TARGET);
     assert.deepEqual(sim.lastEvent("NodePolicyUpdated").args, {

@@ -91,7 +91,8 @@ describe("deployOrg: marketplace governor handover", { skip: !binary }, () => {
       { functionName: "setFeeRecipient", args: [ROOT] },
       { functionName: "setSettlementRouter", args: [ROOT] },
       { functionName: "sweepUnallocated", args: [ROOT] },
-      { functionName: "setGovernor", args: [ROOT] },
+      { functionName: "setPendingGovernor", args: [ROOT] },
+      { functionName: "acceptGovernor", args: [] },
     ] as const;
     for (const attempt of attempts) {
       await assert.rejects(
@@ -101,7 +102,7 @@ describe("deployOrg: marketplace governor handover", { skip: !binary }, () => {
           account: wallet.account,
           ...attempt,
         } as never),
-        /NotGovernor/,
+        attempt.functionName === "acceptGovernor" ? /NotPendingGovernor/ : /NotGovernor/,
         attempt.functionName,
       );
     }

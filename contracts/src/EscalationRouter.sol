@@ -54,6 +54,8 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     address public immutable deployer;
     /// @notice GovernanceModule (or the deployer while bootstrapping) for the setters below.
     address public governor;
+    /// @notice Address named by the governor to take over; it has no power until it accepts.
+    address public pendingGovernor;
 
     /// @notice Emergency stop: while set, anything that would settle (`_finalizeAction`)
     ///         reverts. Rejections and escalation up the tree stay open, so pending
@@ -127,6 +129,7 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     event ValueRecorderUpdated(address indexed valueRecorder);
     event NodeValueRecorderUpdated(address indexed node, address indexed valueRecorder);
     event GovernorUpdated(address indexed governor);
+    event PendingGovernorUpdated(address indexed pendingGovernor);
     /// @notice A pull settlement left `returned` unpulled; it went back to `agent`'s allowance.
     event SettlementReturned(address indexed agent, address indexed target, uint256 returned);
     event Paused(address indexed by);
@@ -160,6 +163,9 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
     /// @notice The target call reverted without revert data; the whole action is undone.
     error ActionCallFailed(address target);
     error AlreadyPaused();
+    /// @dev `acceptGovernor` was called by an address that is not the pending governor.
+    error NotPendingGovernor(address caller);
+    error GovernorAlreadySet();
     error NotPaused();
 
     constructor(address orgRegistry_, address policy_) {
@@ -169,12 +175,34 @@ contract EscalationRouter is ReentrancyGuard, ISettlementContext {
         deployer = msg.sender;
     }
 
-    /// @notice Bind constitutional authority. The deployer binds it first; then only governor.
+    /// @notice Bind constitutional authority, once, by the deployer. Handing it on
+    ///         afterwards is two steps: `setPendingGovernor`, then `acceptGovernor`.
     function setGovernor(address governor_) external {
         if (governor_ == address(0)) revert ZeroAddress();
-        _onlyGovernorOrBootstrap();
+        if (governor != address(0)) revert GovernorAlreadySet();
+        if (msg.sender != deployer) revert NotAuthorized(msg.sender);
         governor = governor_;
         emit GovernorUpdated(governor_);
+    }
+
+    /// @notice Name the address that may take over governance. Current governor only;
+    ///         naming another address replaces the pending one, and the zero address
+    ///         cancels it. The governor keeps every power until the pending address calls
+    ///         `acceptGovernor`, so a wrong address is corrected by naming the right one.
+    function setPendingGovernor(address pending) external {
+        if (governor == address(0) || msg.sender != governor) revert NotAuthorized(msg.sender);
+        pendingGovernor = pending;
+        emit PendingGovernorUpdated(pending);
+    }
+
+    /// @notice Complete the hand-over: only the pending governor may call it.
+    function acceptGovernor() external {
+        if (pendingGovernor == address(0) || msg.sender != pendingGovernor) {
+            revert NotPendingGovernor(msg.sender);
+        }
+        governor = msg.sender;
+        pendingGovernor = address(0);
+        emit GovernorUpdated(msg.sender);
     }
 
     /// @notice Emergency stop. Any active human seat in the org tree, or the current

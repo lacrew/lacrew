@@ -15,6 +15,7 @@
 import {
   createPublicClient,
   createWalletClient,
+  encodeFunctionData,
   type Abi,
   type Account,
   type Chain,
@@ -54,6 +55,9 @@ import {
 type Address = `0x${string}`;
 
 const MAX_UINT256 = 2n ** 256n - 1n;
+
+/** `GovernanceModule.Tier.High`, by ABI value. */
+const HIGH_TIER = 1;
 
 export type DeployOrgOptions = {
   transport: Transport;
@@ -270,9 +274,26 @@ export async function deployOrg(options: DeployOrgOptions): Promise<DeployedOrg>
     await send(whitelistPolicy, whitelistPolicyAbi, "setGovernor", [governanceModule]);
     await send(spendCapPolicy, spendCapPolicyAbi, "setGovernor", [governanceModule]);
     // The governor-only fee, recipient, router and sweep setters belong to the org's
-    // governance too; the root keeps nothing once the handover is done.
+    // governance too; the root keeps nothing once the handover is done. The marketplace
+    // was built with the root as governor, so the hand-over has two steps: the root names
+    // the module, then the module accepts through a High-tier proposal. The root is still
+    // the whole human electorate here, so its own yes vote executes it at once.
     if (marketplacePayments) {
-      await send(marketplacePayments, marketplacePaymentsAbi, "setGovernor", [governanceModule]);
+      await send(marketplacePayments, marketplacePaymentsAbi, "setPendingGovernor", [
+        governanceModule,
+      ]);
+      const proposalId = await publicClient.readContract({
+        address: governanceModule,
+        abi: governanceModuleAbi as Abi,
+        functionName: "nextProposalId",
+      });
+      await send(governanceModule, governanceModuleAbi, "propose", [
+        HIGH_TIER,
+        marketplacePayments,
+        encodeFunctionData({ abi: marketplacePaymentsAbi as Abi, functionName: "acceptGovernor" }),
+      ]);
+      await send(governanceModule, governanceModuleAbi, "vote", [proposalId, true]);
+      await send(governanceModule, governanceModuleAbi, "execute", [proposalId]);
     }
   }
 

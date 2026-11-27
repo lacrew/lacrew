@@ -310,7 +310,11 @@ contract MarketplacePaymentsTest is Test {
 
     function test_governorRotation() public {
         vm.prank(governor);
-        market.setGovernor(other);
+        market.setPendingGovernor(other);
+        vm.prank(other);
+        market.acceptGovernor();
+        assertEq(market.governor(), other);
+        assertEq(market.pendingGovernor(), address(0));
         vm.prank(other);
         market.setFeeBps(500);
         assertEq(market.feeBps(), 500);
@@ -318,6 +322,76 @@ contract MarketplacePaymentsTest is Test {
         vm.prank(governor);
         vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotGovernor.selector, governor));
         market.setFeeBps(100);
+    }
+
+    function test_pendingGovernor_strangerCannotAccept() public {
+        vm.prank(governor);
+        market.setPendingGovernor(other);
+        address stranger = address(0xBAD);
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotPendingGovernor.selector, stranger));
+        market.acceptGovernor();
+        assertEq(market.governor(), governor);
+    }
+
+    function test_acceptGovernor_noPendingReverts() public {
+        vm.prank(address(0));
+        vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotPendingGovernor.selector, address(0)));
+        market.acceptGovernor();
+    }
+
+    function test_oldGovernorKeepsPowersUntilAcceptance() public {
+        vm.prank(governor);
+        market.setPendingGovernor(other);
+        vm.prank(governor);
+        market.setFeeBps(300);
+        assertEq(market.feeBps(), 300);
+        vm.prank(other);
+        vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotGovernor.selector, other));
+        market.setFeeBps(100);
+    }
+
+    function test_wrongHandoverCanBeCorrected() public {
+        address wrong = address(0xDEAD);
+        vm.prank(governor);
+        market.setPendingGovernor(wrong);
+        vm.prank(governor);
+        market.setPendingGovernor(other);
+        vm.prank(wrong);
+        vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotPendingGovernor.selector, wrong));
+        market.acceptGovernor();
+        vm.prank(other);
+        market.acceptGovernor();
+        assertEq(market.governor(), other);
+    }
+
+    function test_pendingGovernorCannotNameSuccessor() public {
+        vm.prank(governor);
+        market.setPendingGovernor(other);
+        vm.prank(other);
+        vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotGovernor.selector, other));
+        market.setPendingGovernor(address(0xCAFE));
+    }
+
+    function test_pendingGovernorCanBeCancelled() public {
+        vm.prank(governor);
+        market.setPendingGovernor(other);
+        vm.prank(governor);
+        market.setPendingGovernor(address(0));
+        vm.prank(other);
+        vm.expectRevert(abi.encodeWithSelector(MarketplacePayments.NotPendingGovernor.selector, other));
+        market.acceptGovernor();
+    }
+
+    function test_handoverEmitsBothEvents() public {
+        vm.expectEmit(true, false, false, false, address(market));
+        emit MarketplacePayments.PendingGovernorUpdated(other);
+        vm.prank(governor);
+        market.setPendingGovernor(other);
+        vm.expectEmit(true, false, false, false, address(market));
+        emit MarketplacePayments.GovernorUpdated(other);
+        vm.prank(other);
+        market.acceptGovernor();
     }
 
     function test_feeRecipientChangeRoutesLaterFeesOnly() public {
