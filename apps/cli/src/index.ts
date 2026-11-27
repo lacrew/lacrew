@@ -28,6 +28,7 @@ import { cmdGas, flushGasReports, watchClientGas } from "./gas.js";
 import { loadEnvFile } from "./env.js";
 import { listTemplateIds, scaffoldTemplate } from "./scaffold.js";
 import { flagValue, hasFlag } from "./args.js";
+import { stuckHint } from "./stuck.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 /** Anvil account #0 — public dev key; only ever used for `lacrew deploy --anvil`. */
@@ -215,6 +216,30 @@ function cmdDeploy(args: string[]): void {
     console.log(readFileSync(src, "utf8"));
   }
   console.log("Deploy complete. Run: lacrew org --rpc");
+}
+
+/** Version from this package's own manifest (one level above both src/ and dist/). */
+function cliVersion(): string {
+  try {
+    const pkg = JSON.parse(
+      readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "package.json"), "utf8"),
+    ) as { version?: string };
+    return pkg.version ?? "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** After a thrown error: a prefilled "Stuck? Tell us" issue link on stderr. */
+function printStuckHint(err: unknown): void {
+  const command = process.argv[2];
+  console.error(
+    stuckHint({
+      command: command && !command.startsWith("-") ? command : undefined,
+      error: err,
+      cliVersion: cliVersion(),
+    }),
+  );
 }
 
 async function main(): Promise<void> {
@@ -905,6 +930,7 @@ Env:
 main()
   .catch((err) => {
     console.error(err);
+    printStuckHint(err);
     process.exitCode = 1;
   })
   // After the command, failed or not: a transaction it sent was paid for.

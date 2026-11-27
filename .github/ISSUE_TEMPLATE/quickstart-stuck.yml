@@ -1,0 +1,51 @@
+name: Stuck on the quickstart
+description: You could not finish setup, onboarding or a CLI command. Tell us where.
+title: "Stuck: "
+labels: ["quickstart", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for telling us. This is a public issue, so **do not paste private keys, API keys, mnemonics, session tokens or RPC URLs that contain a key.** If the error text below has any, remove them first.
+  - type: input
+    id: step
+    attributes:
+      label: Step you reached
+      description: The last step that worked, or the command that failed.
+      placeholder: "e.g. hosted onboarding, passkey step / CLI: lacrew deploy --anvil"
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Error text
+      description: What you saw, copied as text.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: versions
+    attributes:
+      label: Versions
+      description: CLI, Node and OS, or browser for the hosted app.
+      placeholder: "lacrew-cli 0.1.0, node v22.x, macOS 15 / Chrome 130"
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what you already tried
+    validations:
+      required: false
+  - type: dropdown
+    id: path
+    attributes:
+      label: Which path were you on?
+      options:
+        - Hosted cloud (lacrew.xyz)
+        - Local quickstart (pnpm / Anvil)
+        - Testnet deploy
+        - Other
+    validations:
+      required: false
